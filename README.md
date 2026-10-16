@@ -1,40 +1,69 @@
 # Instant Recorder
 
-Proof-of-concept Android app for Pixel: press a physical button, speak, and get on-device
-transcription plus suggested tasks.
+Capture a thought without unlocking your phone: **press both volume buttons**, say what you need to do, and get it back as tasks with due dates. Transcription runs entirely on the phone, so your voice never leaves it.
 
-- **Triggers**
-  - Hold **Volume Down** (configurable): an Accessibility Service watches the volume keys. Quick presses still change the volume. Works whenever the screen is on, including the lock screen. Android doesn't deliver volume keys to apps while the screen is off.
-  - **Quick Tap** (double-tap the back): point it at the "Quick Record" launcher entry. Unlocked phone only.
-  - Quick Settings tile, long-press app-icon shortcut, and the in-app mic button.
-- **Transcription**: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) v1.9.5, compiled into the app and running on the CPU. The model downloads once, then everything is offline.
-- **Tasks**: rule-based extraction (`TaskExtractor`) splits the note into clauses, strips "remind me to…", and detects dates and times. Save tasks to the in-app list (with reminders), add them to Calendar, or share them to any task app. Notifications have a one-tap **Save all**.
+> "Remind me to call mom tomorrow at 5 pm, and book the dentist for next Tuesday."
+>
+> → **Call mom** · Tomorrow 5:00 PM
+> → **Book the dentist** · Tuesday
 
-## Build & install
+Built and tested on a Pixel 10 Pro Fold (Android 17). It should work on other Android 12+ phones, but it's untested there.
 
-Requirements: JDK 17, Android SDK platform 37.2, NDK 28.2.13676358, CMake 3.31.5 (all via Android Studio's SDK Manager).
+## Install
+
+1. On your phone, download **[instant-recorder.apk](https://github.com/augustopedroza/instant-recorder/releases/latest/download/instant-recorder.apk)** (the newest build) and open it. Android will ask you to allow your browser to install apps; allow it.
+2. Open **Instant Recorder** and follow the "Finish setting up" card:
+   - Allow the microphone and notifications.
+   - Choose a speech model: **Fast** (148 MB, results in about a second) or **Accurate** (190 MB, better with names and unusual words, a few seconds per note). You can switch later in Settings.
+   - Turn on the volume-button trigger. This is an Accessibility service. Because the app wasn't installed from the Play Store, Android first shows **"Restricted setting"**. To allow it, go to **Settings → Apps → Instant Recorder → ⋮ (top right) → Allow restricted settings**, then switch the service on under **Settings → Accessibility → Instant Recorder volume-button trigger**.
+
+**Updates:** download the APK again from the link above and install it over the old one. To get updates automatically, add this repository to [Obtainium](https://github.com/ImranR98/Obtainium).
+
+**Google's developer verification:** Google now requires Android apps to come from identity-verified developers, even when installed outside the Play Store. It has been enforced in Brazil, Indonesia, Singapore and Thailand since September 30, 2026, and is planned worldwide from 2027. If your phone refuses to install the app, that's why. Installing over a USB cable with `adb install instant-recorder.apk` still works.
+
+## Using it
+
+| To | Do this |
+|---|---|
+| Start recording | Press **both volume buttons together**. Works on the lock screen and with the always-on display. |
+| Stop | Press either volume button, tap **Stop** in the notification, or just stop talking (it stops after 8 s of silence). |
+| Start without the buttons | Double-tap the back of the phone (Pixel: Settings → System → Gestures → Quick Tap → Open app → **Quick Record**), the Quick Settings tile, or the mic button in the app. |
+
+While recording, a red timer chip shows in the status bar. A few seconds after you stop, a notification lists the tasks it found: tap **Save all**, or open it to edit the tasks, add them to your calendar, or share them to any task app.
+
+Single volume presses work exactly as before, including holding a button to change the volume quickly. Everything is adjustable in Settings: the gesture, walkie-talkie mode, silence timeout, maximum length and the speech model.
+
+## Privacy
+
+- Audio is recorded and transcribed **on the phone** with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). The only network use is the one-time speech model download from Hugging Face.
+- The Accessibility service only watches the **volume buttons**. It doesn't read the screen or what you type.
+- Recordings and tasks stay in the app's private storage. Uninstalling deletes them.
+
+## Build from source
+
+Requirements: JDK 17, Android SDK platform 37.2, NDK 28.2.13676358, CMake 3.31.5.
 
 ```sh
-git submodule update --init          # whisper.cpp
-./gradlew :app:installRelease        # ~5 MB, minified; signed with the debug key
-./gradlew :app:testDebugUnitTest     # task-extraction tests
+git clone --recurse-submodules https://github.com/augustopedroza/instant-recorder.git
+cd instant-recorder
+./gradlew :app:testDebugUnitTest   # unit tests
+./gradlew :app:installDebug        # build and install on a connected phone
 ```
 
-On the phone:
-1. Open **Instant Recorder** and work through the "Finish setting up" card: microphone, notifications, speech model download, accessibility service.
-2. Optional: Settings → System → Gestures → Quick Tap → Open app → **Quick Record**.
-
-If you install from a downloaded APK rather than `adb`, Android may block the accessibility toggle ("Restricted setting"). Allow it from App info → ⋮ → Allow restricted settings.
-
-## Layout
+Every push to `main` is built by [GitHub Actions](.github/workflows/build.yml). The workflow runs the tests and publishes a signed APK as a [release](https://github.com/augustopedroza/instant-recorder/releases). The build number is the commit count, so each build installs over the previous one.
 
 ```
 app/src/main/cpp/                 CMake + JNI bridge to whisper.cpp
 app/src/main/java/app/instantrecorder/
-  recording/RecordingService.kt   foreground service: mic → 16 kHz WAV → whisper queue
-  trigger/Triggers.kt             volume-key AccessibilityService, Quick Settings tile
-  transcribe/                     JNI wrapper, model download, transcriber
-  tasks/                          TaskExtractor, saving, reminders, calendar/share intents
-  ui/                             Compose screens (home, review, settings)
-third_party/whisper.cpp           git submodule, pinned to v1.9.5
+  recording/                      foreground service: mic → 16 kHz WAV → transcription queue; silence detection
+  trigger/                        volume-button Accessibility service (both-buttons gesture), Quick Settings tile
+  transcribe/                     whisper.cpp wrapper, model downloads
+  tasks/                          task extraction, reminders, calendar/share hand-offs
+  ui/                             Compose screens
+app/src/debug/                    adb hooks for on-device benchmarks (debug builds only)
+third_party/whisper.cpp           git submodule
 ```
+
+## License
+
+[MIT](LICENSE). whisper.cpp is MIT-licensed, and so are OpenAI's Whisper models.
