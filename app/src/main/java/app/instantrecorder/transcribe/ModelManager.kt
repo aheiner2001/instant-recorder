@@ -30,10 +30,9 @@ enum class WhisperModel(
     val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String,
     val shrinkWindow: Boolean, val threads: Int,
 ) {
-    TINY_EN("tiny.en", "Tiny", "ggml-tiny.en.bin", 77_704_715, "Fastest, least accurate", shrinkWindow = true, threads = 3),
     BASE_EN("base.en", "Base", "ggml-base.en.bin", 147_964_211, "Fast; fine for clear speech", shrinkWindow = true, threads = 3),
     SMALL_EN_Q5(
-        "small.en-q5_1", "Small (quantized)", "ggml-small.en-q5_1.bin", 190_098_681,
+        "small.en-q5_1", "Small", "ggml-small.en-q5_1.bin", 190_098_681,
         "Most accurate with names and uncommon words; a few seconds per note", shrinkWindow = false, threads = 5,
     );
 
@@ -52,6 +51,14 @@ class ModelManager(context: Context, private val scope: CoroutineScope, private 
 
     private val _installed = MutableStateFlow(scanInstalled())
     val installed: StateFlow<Set<WhisperModel>> = _installed.asStateFlow()
+
+    init {
+        // Files for models the app no longer offers (Tiny was dropped) or abandoned partial downloads.
+        scope.launch(Dispatchers.IO) {
+            val known = WhisperModel.entries.map { it.fileName }.toSet()
+            dir.listFiles()?.filter { it.name !in known }?.forEach { it.delete() }
+        }
+    }
 
     /** Models currently downloading, with progress in 0..1. */
     private val _downloads = MutableStateFlow<Map<WhisperModel, Float>>(emptyMap())

@@ -32,6 +32,7 @@ import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
@@ -208,19 +209,24 @@ private fun SetupCard(vm: MainViewModel) {
                 }
             }
             if (!hasModel) {
-                val model = WhisperModel.BASE_EN
-                val progress = downloads[model]
                 SetupStep(
-                    "Download the speech model",
-                    "One-time ${model.sizeBytes / 1_000_000} MB download. Transcription then runs offline on this phone.",
-                ) {
-                    if (progress != null) {
-                        Text("${(progress * 100).toInt()}%")
-                    } else {
-                        Button(onClick = { vm.downloadModel(model) }) { Text("Download") }
+                    "Choose a speech model",
+                    "A one-time download. Transcription then runs offline on this phone, and you can switch later in Settings.",
+                ) {}
+                val downloading = downloads.entries.firstOrNull()
+                if (downloading != null) {
+                    Text("Downloading ${downloading.key.label}… ${(downloading.value * 100).toInt()}%")
+                    LinearProgressIndicator(progress = { downloading.value }, modifier = Modifier.fillMaxWidth())
+                } else {
+                    WhisperModel.entries.forEach { model ->
+                        OutlinedButton(onClick = { vm.downloadModel(model) }, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                                Text("${model.label} · ${model.sizeBytes / 1_000_000} MB", style = MaterialTheme.typography.titleSmall)
+                                Text(model.note, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                     }
                 }
-                if (progress != null) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
             }
             if (!triggerOn) {
                 SetupStep(
