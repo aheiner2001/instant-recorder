@@ -12,10 +12,12 @@ android {
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
-        applicationId = "app.instantrecorder"
+        // The published app ID; Kotlin code keeps the shorter `app.instantrecorder` namespace.
+        applicationId = "io.github.instantrecorder"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
+        // CI passes the commit count so every build installs over the previous one.
+        versionCode = providers.gradleProperty("versionCode").orNull?.toInt() ?: 1
         versionName = "0.1"
 
         ndk {
@@ -30,12 +32,25 @@ android {
         }
     }
 
+    // CI signs releases with the key from repository secrets (.github/workflows/build.yml). Without it,
+    // e.g. a local `assembleRelease`, the debug key is used, which can't update a CI-installed app.
+    val releaseKeystore = System.getenv("RELEASE_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Personal sideloaded build: sign with the debug key so `installRelease` just works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
         }
     }
 

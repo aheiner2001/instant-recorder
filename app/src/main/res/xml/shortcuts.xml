@@ -8,6 +8,6 @@
         <intent
             android:action="app.instantrecorder.action.QUICK_RECORD"
             android:targetClass="app.instantrecorder.ui.MainActivity"
-            android:targetPackage="app.instantrecorder" />
+            android:targetPackage="io.github.instantrecorder" />
     </shortcut>
 </shortcuts>

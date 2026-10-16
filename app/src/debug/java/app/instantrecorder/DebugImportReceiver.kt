@@ -17,16 +17,16 @@ import java.io.File
  * Debug-only test hook. Imports a 16 kHz mono WAV from the app's files dir as a new recording and
  * queues it for transcription, so the pipeline can be exercised without speaking:
  *
- *   adb exec-in run-as app.instantrecorder sh -c 'cat > files/import.wav' < note.wav
- *   adb shell am start -n app.instantrecorder/.ui.MainActivity     # foreground, so the service may start
- *   adb shell am broadcast -n app.instantrecorder/.DebugImportReceiver --es file import.wav
+ *   adb exec-in run-as io.github.instantrecorder sh -c 'cat > files/import.wav' < note.wav
+ *   adb shell am start -n io.github.instantrecorder/app.instantrecorder.ui.MainActivity     # foreground, so the service may start
+ *   adb shell am broadcast -n io.github.instantrecorder/app.instantrecorder.DebugImportReceiver --es file import.wav
  *
  * Experiment knobs on import: --ei threads N (force thread count, 0 = automatic), --ez quiet true
  * (no result notification). Purge every imported recording: --ez purge true
  *
  * Benchmark encoder window sizes on existing files (logged under "Bench"):
  *
- *   adb shell am broadcast -n app.instantrecorder/.DebugImportReceiver --es bench recordings/a.wav,recordings/b.wav
+ *   adb shell am broadcast -n io.github.instantrecorder/app.instantrecorder.DebugImportReceiver --es bench recordings/a.wav,recordings/b.wav
  */
 class DebugImportReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

@@ -10,3 +10,5 @@
 .externalNativeBuild
 .kotlin/
 .claude/worktrees/
+*.jks
+*.keystore
