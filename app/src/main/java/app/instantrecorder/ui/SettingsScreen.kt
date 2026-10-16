@@ -165,16 +165,28 @@ fun SettingsScreen(vm: MainViewModel) {
 
             SectionHeader("Recording")
             ChoiceRow(
-                title = "Stop after silence",
-                options = listOf(0 to "Off", 5 to "5 s", 8 to "8 s", 15 to "15 s"),
+                title = "Quick notes stop after a pause of",
+                options = listOf(0 to "Never", 5 to "5 s", 8 to "8 s", 15 to "15 s"),
                 selected = settings.silenceStopSec,
                 onSelect = { v -> vm.updateSettings { it.copy(silenceStopSec = v) } },
             )
             ChoiceRow(
-                title = "Maximum length",
-                options = listOf(2 to "2 min", 5 to "5 min", 10 to "10 min", 30 to "30 min"),
-                selected = settings.maxRecordingMin,
-                onSelect = { v -> vm.updateSettings { it.copy(maxRecordingMin = v) } },
+                title = "Quick notes stop at",
+                options = listOf(15 to "15 s", 30 to "30 s", 60 to "1 min"),
+                selected = settings.quickMaxSec,
+                onSelect = { v -> vm.updateSettings { it.copy(quickMaxSec = v) } },
+            )
+            ChoiceRow(
+                title = "Long recordings stop at",
+                options = listOf(10 to "10 min", 30 to "30 min", 60 to "60 min"),
+                selected = settings.longMaxMin,
+                onSelect = { v -> vm.updateSettings { it.copy(longMaxMin = v) } },
+            )
+            Text(
+                "For a long recording, slide the mic button up to lock it, or tap Keep recording while a quick note runs.",
+                Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (Build.VERSION.SDK_INT >= 36) {
                 ListItem(

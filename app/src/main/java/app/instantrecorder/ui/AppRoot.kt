@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DatePicker
@@ -33,6 +35,7 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -91,19 +94,19 @@ fun AppRoot(vm: MainViewModel) {
         val recording = status as? RecorderState.Status.Recording
         AnimatedVisibility(visible = recording != null, enter = fadeIn(), exit = fadeOut()) {
             if (recording != null) {
-                RecordingOverlay(recording.startedAt, vm, onStop = vm::stopRecording, onDiscard = vm::discardRecording)
+                RecordingOverlay(recording, vm)
             }
         }
     }
 }
 
 @Composable
-private fun RecordingOverlay(startedAt: Long, vm: MainViewModel, onStop: () -> Unit, onDiscard: () -> Unit) {
+private fun RecordingOverlay(recording: RecorderState.Status.Recording, vm: MainViewModel) {
     val level by vm.level.collectAsStateWithLifecycle()
     val animatedLevel by animateFloatAsState(level, label = "level")
-    val elapsed by produceState(0L, startedAt) {
+    val elapsed by produceState(0L, recording.startedAt) {
         while (true) {
-            value = System.currentTimeMillis() - startedAt
+            value = System.currentTimeMillis() - recording.startedAt
             delay(200)
         }
     }
@@ -113,8 +116,21 @@ private fun RecordingOverlay(startedAt: Long, vm: MainViewModel, onStop: () -> U
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("Recording", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.error)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (recording.long) Icon(Icons.Filled.Lock, null, Modifier.padding(end = 8.dp), tint = MaterialTheme.colorScheme.error)
+                Text(
+                    if (recording.long) "Long recording" else "Quick note",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             Text(formatDuration(elapsed), style = MaterialTheme.typography.displayMedium, fontFamily = FontFamily.Monospace)
+            Text(
+                if (recording.long) "Stops at ${formatDuration(recording.limitMs)}"
+                else "Stops after a pause, or at ${formatDuration(recording.limitMs)}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Spacer(Modifier.height(32.dp))
             Box(Modifier.size(240.dp), contentAlignment = Alignment.Center) {
                 Box(
@@ -123,7 +139,7 @@ private fun RecordingOverlay(startedAt: Long, vm: MainViewModel, onStop: () -> U
                         .background(MaterialTheme.colorScheme.errorContainer)
                 )
                 FilledIconButton(
-                    onClick = onStop,
+                    onClick = vm::stopRecording,
                     modifier = Modifier.size(112.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.error),
                 ) {
@@ -132,8 +148,14 @@ private fun RecordingOverlay(startedAt: Long, vm: MainViewModel, onStop: () -> U
             }
             Spacer(Modifier.height(24.dp))
             Text("Tap to stop and transcribe", style = MaterialTheme.typography.bodyLarge)
-            Spacer(Modifier.height(8.dp))
-            TextButton(onClick = onDiscard) { Text("Discard") }
+            Spacer(Modifier.height(16.dp))
+            if (!recording.long) {
+                OutlinedButton(onClick = vm::lockRecording) {
+                    Icon(Icons.Filled.Lock, null, Modifier.size(18.dp))
+                    Text("Keep recording", Modifier.padding(start = 8.dp))
+                }
+            }
+            TextButton(onClick = vm::discardRecording) { Text("Discard") }
         }
     }
 }

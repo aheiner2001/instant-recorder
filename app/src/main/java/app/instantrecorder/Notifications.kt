@@ -11,6 +11,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.TaskItem
+import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
 import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskActionReceiver
@@ -46,12 +47,15 @@ object Notifications {
         )
     }
 
-    fun recording(context: Context, startedAt: Long): Notification =
-        NotificationCompat.Builder(context, CHANNEL_RECORDING)
+    fun recording(context: Context, status: RecorderState.Status.Recording): Notification {
+        val builder = NotificationCompat.Builder(context, CHANNEL_RECORDING)
             .setSmallIcon(R.drawable.ic_mic)
-            .setContentTitle("Recording…")
-            .setContentText("Press a volume button or tap Stop when you're done")
-            .setWhen(startedAt)
+            .setContentTitle(if (status.long) "Long recording…" else "Recording a quick note…")
+            .setContentText(
+                if (status.long) "Stops at ${formatLimit(status.limitMs)} or when you tap Stop"
+                else "Stops after a pause or at ${formatLimit(status.limitMs)}. Tap Keep recording for longer."
+            )
+            .setWhen(status.startedAt)
             .setUsesChronometer(true)
             .setShowWhen(true)
             .setOngoing(true)
@@ -64,8 +68,13 @@ object Notifications {
             .setColor(RECORDING_RED)
             .setContentIntent(openApp(context))
             .addAction(R.drawable.ic_stop, "Stop", serviceAction(context, RecordingService.ACTION_STOP))
+        if (!status.long) builder.addAction(R.drawable.ic_mic, "Keep recording", serviceAction(context, RecordingService.ACTION_LOCK))
+        return builder
             .addAction(R.drawable.ic_stop, "Discard", serviceAction(context, RecordingService.ACTION_CANCEL))
             .build()
+    }
+
+    private fun formatLimit(ms: Long): String = if (ms % 60_000 == 0L) "${ms / 60_000} min" else "${ms / 1000} s"
 
     fun working(context: Context, text: String, progress: Int?): Notification =
         NotificationCompat.Builder(context, CHANNEL_RECORDING)

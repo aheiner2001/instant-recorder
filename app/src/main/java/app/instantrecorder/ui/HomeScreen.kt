@@ -2,6 +2,41 @@ package app.instantrecorder.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material3.FloatingActionButtonDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -28,7 +63,6 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
@@ -105,13 +139,17 @@ fun HomeScreen(vm: MainViewModel) {
         }
     }
 
+    // Runs a recording action once the microphone is allowed (asking first if needed).
+    var afterMicGranted by remember { mutableStateOf<(() -> Unit)?>(null) }
     val recordPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) vm.toggleRecording()
+        if (granted) afterMicGranted?.invoke()
+        afterMicGranted = null
     }
-    val onRecord = {
+    val withMic = { action: () -> Unit ->
         if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            vm.toggleRecording()
+            action()
         } else {
+            afterMicGranted = action
             recordPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
     }
@@ -126,7 +164,10 @@ fun HomeScreen(vm: MainViewModel) {
             )
         },
         floatingActionButton = {
-            LargeFloatingActionButton(onClick = onRecord) { Icon(Icons.Filled.Mic, "Record", Modifier.size(36.dp)) }
+            RecordButton(
+                onQuickNote = { withMic(vm::toggleRecording) },
+                onLongRecording = { withMic(vm::startLongRecording) },
+            )
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
@@ -145,7 +186,12 @@ fun HomeScreen(vm: MainViewModel) {
             }
             if (tab == 0) {
                 if (recordings.isEmpty()) {
-                    item { EmptyHint("No recordings yet. To record, ${settings.volumeGestureHint}, double-tap the back of the phone, or tap the mic.") }
+                    item {
+                        EmptyHint(
+                            "No recordings yet. To record a quick note, ${settings.volumeGestureHint}, double-tap the back " +
+                                "of the phone, or tap the mic. For a long recording, slide the mic up onto the lock."
+                        )
+                    }
                 }
                 items(recordings, key = { it.id }) { r ->
                     SwipeToDelete(
@@ -370,4 +416,94 @@ fun SectionHeader(text: String) {
         style = MaterialTheme.typography.titleSmall,
         color = MaterialTheme.colorScheme.primary,
     )
+}
+
+private val LOCK_DISTANCE = 96.dp
+
+/**
+ * The mic button. Tap: a quick note (stops after a pause or a short limit). Press and slide up onto the
+ * lock: a long recording, like locking a voice message.
+ */
+@Composable
+private fun RecordButton(onQuickNote: () -> Unit, onLongRecording: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
+    val lockDistancePx = with(LocalDensity.current) { LOCK_DISTANCE.toPx() }
+    var slidPx by remember { mutableFloatStateOf(0f) }
+    var pressed by remember { mutableStateOf(false) }
+    val progress = (slidPx / lockDistancePx).coerceIn(0f, 1f)
+    val quickNote by rememberUpdatedState(onQuickNote)
+    val longRecording by rememberUpdatedState(onLongRecording)
+    val shape = FloatingActionButtonDefaults.largeShape
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        // Delayed, so a plain tap never flashes it; it appears while the finger stays down or slides.
+        AnimatedVisibility(
+            visible = pressed,
+            enter = fadeIn(tween(150, delayMillis = 200)) + expandVertically(tween(150, delayMillis = 200), expandFrom = Alignment.Bottom),
+            exit = fadeOut(tween(100)) + shrinkVertically(tween(100), shrinkTowards = Alignment.Bottom),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.padding(bottom = 8.dp).width(72.dp).height(LOCK_DISTANCE),
+            ) {
+                Column(
+                    Modifier.padding(vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Icon(if (progress >= 1f) Icons.Filled.Lock else Icons.Filled.LockOpen, contentDescription = null)
+                    Text("Long", style = MaterialTheme.typography.labelSmall)
+                    Icon(Icons.Filled.KeyboardArrowUp, contentDescription = null, Modifier.alpha(1f - progress))
+                }
+            }
+        }
+        Box(
+            Modifier
+                .offset { IntOffset(0, -slidPx.roundToInt()) }
+                .size(96.dp)
+                .shadow(6.dp, shape)
+                .clip(shape)
+                .background(MaterialTheme.colorScheme.primaryContainer)
+                .semantics(mergeDescendants = true) {
+                    role = Role.Button
+                    contentDescription = "Record"
+                    onClick(label = "Record a quick note") { quickNote(); true }
+                    customActions = listOf(CustomAccessibilityAction("Start a long recording") { longRecording(); true })
+                }
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        pressed = true
+                        var moved = false
+                        var locked = false
+                        while (true) {
+                            val change = awaitPointerEvent().changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val up = down.position.y - change.position.y
+                            if ((change.position - down.position).getDistance() > viewConfiguration.touchSlop) moved = true
+                            slidPx = up.coerceIn(0f, lockDistancePx)
+                            change.consume()
+                            if (up >= lockDistancePx) {
+                                locked = true
+                                break
+                            }
+                        }
+                        pressed = false
+                        slidPx = 0f
+                        when {
+                            locked -> {
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                longRecording()
+                            }
+                            !moved -> quickNote()
+                            // Slid part-way and let go: changed their mind.
+                        }
+                    }
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Filled.Mic, contentDescription = null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
 }

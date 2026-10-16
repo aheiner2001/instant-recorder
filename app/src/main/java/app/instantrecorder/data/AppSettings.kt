@@ -30,9 +30,11 @@ data class Settings(
     val holdMs: Int = 500,
     val haptics: Boolean = true,
     val pauseMedia: Boolean = true,
-    /** Stop by itself after this much silence; 0 = never. */
+    /** Quick notes stop by themselves after this much silence; 0 = never. Long recordings never do. */
     val silenceStopSec: Int = 8,
-    val maxRecordingMin: Int = 5,
+    /** Hard limit for quick notes, so one left running in noise ends soon anyway. */
+    val quickMaxSec: Int = 30,
+    val longMaxMin: Int = 30,
     val modelId: String = "small.en-q5_1", // "Accurate": clearly better on real notes, worth a few seconds
 )
 
@@ -61,7 +63,8 @@ class AppSettings(context: Context) {
             putBoolean("haptics", next.haptics)
             putBoolean("pauseMedia", next.pauseMedia)
             putInt("silenceStopSec", next.silenceStopSec)
-            putInt("maxRecordingMin", next.maxRecordingMin)
+            putInt("quickMaxSec", next.quickMaxSec)
+            putInt("longMaxMin", next.longMaxMin)
             putString("modelId", next.modelId)
         }
         _state.value = next
@@ -78,7 +81,8 @@ class AppSettings(context: Context) {
             haptics = prefs.getBoolean("haptics", d.haptics),
             pauseMedia = prefs.getBoolean("pauseMedia", d.pauseMedia),
             silenceStopSec = prefs.getInt("silenceStopSec", d.silenceStopSec),
-            maxRecordingMin = prefs.getInt("maxRecordingMin", d.maxRecordingMin),
+            quickMaxSec = prefs.getInt("quickMaxSec", d.quickMaxSec),
+            longMaxMin = prefs.getInt("longMaxMin", d.longMaxMin),
             modelId = prefs.getString("modelId", d.modelId) ?: d.modelId,
         )
     }

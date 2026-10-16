@@ -70,6 +70,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun recording(id: Long): Flow<Recording?> = graph.db.recordings().observe(id)
 
     fun toggleRecording() = RecordingService.send(context, RecordingService.ACTION_TOGGLE)
+    fun startLongRecording() = RecordingService.send(context, RecordingService.ACTION_START_LONG)
+    fun lockRecording() = RecordingService.send(context, RecordingService.ACTION_LOCK)
     fun stopRecording() = RecordingService.send(context, RecordingService.ACTION_STOP)
     fun discardRecording() = RecordingService.send(context, RecordingService.ACTION_CANCEL)
 

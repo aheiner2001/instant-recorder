@@ -54,7 +54,8 @@ import kotlin.math.sqrt
 object RecorderState {
     sealed interface Status {
         data object Idle : Status
-        data class Recording(val startedAt: Long) : Status
+        /** [long]: locked for a long session (no silence stop); [limitMs]: when it stops by itself, from start. */
+        data class Recording(val startedAt: Long, val long: Boolean, val limitMs: Long) : Status
     }
 
     val status = MutableStateFlow<Status>(Status.Idle)
@@ -94,6 +95,10 @@ class RecordingService : LifecycleService() {
         stopRecording(keep = true)
         stopIfIdle()
     }
+    /** A short buzz shortly before the automatic cutoff, so it doesn't come as a surprise. */
+    private val warnBeforeStop = Runnable {
+        if (app.settings.value.haptics) vibrate(VibrationEffect.createOneShot(40, VibrationEffect.DEFAULT_AMPLITUDE))
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -115,9 +120,11 @@ class RecordingService : LifecycleService() {
         if (!enterForeground()) return START_NOT_STICKY
         wakeLock.acquire(MAX_RECORDING_MS + WAKE_LOCK_SLACK_MS)
         when (intent?.action) {
-            ACTION_START -> startRecording()
+            ACTION_START -> startRecording(long = false)
+            ACTION_START_LONG -> if (capture == null) startRecording(long = true) else lock()
+            ACTION_LOCK -> lock()
             ACTION_STOP -> stopRecording(keep = true)
-            ACTION_TOGGLE -> if (capture == null) startRecording() else stopRecording(keep = true)
+            ACTION_TOGGLE -> if (capture == null) startRecording(long = false) else stopRecording(keep = true)
             ACTION_CANCEL -> stopRecording(keep = false)
             ACTION_TRANSCRIBE -> enqueue(intent.getLongExtra(EXTRA_RECORDING_ID, -1))
         }
@@ -157,30 +164,53 @@ class RecordingService : LifecycleService() {
         }
     }
 
-    private fun startRecording() {
+    /** Quick notes stop after silence or [Settings.quickMaxSec]; long ones only at [Settings.longMaxMin]. */
+    private fun startRecording(long: Boolean) {
         if (capture != null) return
         val startedAt = System.currentTimeMillis()
         val dir = File(filesDir, "recordings").apply { mkdirs() }
         val settings = app.settings.value
+        val silenceMs = if (long) 0L else settings.silenceStopSec * 1000L
         val c = try {
-            Capture(File(dir, "rec_$startedAt.wav"), startedAt, settings.silenceStopSec * 1000L) { handler.post(autoStop) }
+            Capture(File(dir, "rec_$startedAt.wav"), startedAt, silenceMs) { handler.post(autoStop) }
         } catch (e: Exception) {
             Log.e(TAG, "Couldn't open the microphone", e)
             Notifications.showProblem(this, "Microphone unavailable", e.message ?: "Another app may be using it.")
             return
         }
         capture = c
-        RecorderState.status.value = RecorderState.Status.Recording(startedAt)
-        refreshNotification()
         if (settings.pauseMedia) requestAudioFocus()
         if (settings.haptics) vibrate(VibrationEffect.createOneShot(70, VibrationEffect.DEFAULT_AMPLITUDE))
-        handler.postDelayed(autoStop, settings.maxRecordingMin * 60_000L)
+        setMode(startedAt, long)
+    }
+
+    /** Turns the running quick note into a long recording: no silence stop, the long time limit. */
+    private fun lock() {
+        val c = capture ?: return
+        val status = RecorderState.status.value as? RecorderState.Status.Recording ?: return
+        if (status.long) return
+        c.stopListeningForSilence()
+        if (app.settings.value.haptics) vibrate(VibrationEffect.createPredefined(VibrationEffect.EFFECT_TICK))
+        setMode(status.startedAt, long = true)
+    }
+
+    private fun setMode(startedAt: Long, long: Boolean) {
+        val settings = app.settings.value
+        val limitMs = if (long) settings.longMaxMin * 60_000L else settings.quickMaxSec * 1000L
+        RecorderState.status.value = RecorderState.Status.Recording(startedAt, long, limitMs)
+        refreshNotification()
+        handler.removeCallbacks(autoStop)
+        handler.removeCallbacks(warnBeforeStop)
+        val elapsed = System.currentTimeMillis() - startedAt
+        handler.postDelayed(autoStop, (limitMs - elapsed).coerceAtLeast(0))
+        handler.postDelayed(warnBeforeStop, (limitMs - WARN_BEFORE_STOP_MS - elapsed).coerceAtLeast(0))
     }
 
     private fun stopRecording(keep: Boolean) {
         val c = capture ?: return
         capture = null
         handler.removeCallbacks(autoStop)
+        handler.removeCallbacks(warnBeforeStop)
         c.finish()
         abandonAudioFocus()
         RecorderState.status.value = RecorderState.Status.Idle
@@ -272,7 +302,7 @@ class RecordingService : LifecycleService() {
 
     private fun currentNotification(): Notification {
         val status = RecorderState.status.value
-        if (status is RecorderState.Status.Recording) return Notifications.recording(this, status.startedAt)
+        if (status is RecorderState.Status.Recording) return Notifications.recording(this, status)
         val progress = RecorderState.transcribing.value?.second
         return Notifications.working(this, if (pending.get() > 0) "Transcribing…" else "Starting…", progress ?: 0)
     }
@@ -317,6 +347,7 @@ class RecordingService : LifecycleService() {
         private val writer: WavFile.Writer
         private val worker: Thread
         private val silence = if (silenceMs > 0) SilenceDetector(silenceMs, FRAME_MS) else null
+        @Volatile private var listeningForSilence = silence != null
         @Volatile private var stoppedBySilence = false
         private var lastSpeechAt = 0L // in samples
 
@@ -360,7 +391,7 @@ class RecordingService : LifecycleService() {
                     samples += n
                     val db = levelDb(buffer, n)
                     RecorderState.level.value = ((db + 60) / 60).toFloat().coerceIn(0f, 1f)
-                    if (silence != null && !stoppedBySilence) {
+                    if (silence != null && listeningForSilence && !stoppedBySilence) {
                         if (silence.isSpeech(db)) lastSpeechAt = samples
                         if (silence.shouldStop) {
                             stoppedBySilence = true
@@ -377,6 +408,11 @@ class RecordingService : LifecycleService() {
                 }
                 writer.close()
             }
+        }
+
+        /** The recording was locked into a long session: keep going through pauses. */
+        fun stopListeningForSilence() {
+            listeningForSilence = false
         }
 
         fun finish() {
@@ -399,10 +435,13 @@ class RecordingService : LifecycleService() {
         /** Hard ceiling for the wake lock, above the longest "maximum length" setting. */
         private const val MAX_RECORDING_MS = 30L * 60 * 1000
         private const val FRAME_MS = 100L
+        private const val WARN_BEFORE_STOP_MS = 5_000L
         private const val MIN_RECORDING_MS = 600L
         private const val WAKE_LOCK_SLACK_MS = 10L * 60 * 1000
 
         const val ACTION_START = "app.instantrecorder.action.START"
+        const val ACTION_START_LONG = "app.instantrecorder.action.START_LONG"
+        const val ACTION_LOCK = "app.instantrecorder.action.LOCK"
         const val ACTION_STOP = "app.instantrecorder.action.STOP"
         const val ACTION_TOGGLE = "app.instantrecorder.action.TOGGLE"
         const val ACTION_CANCEL = "app.instantrecorder.action.CANCEL"
