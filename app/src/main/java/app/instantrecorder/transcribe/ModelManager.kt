@@ -31,13 +31,14 @@ enum class WhisperModel(
     val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String,
     val shrinkWindow: Boolean, val threads: Int,
 ) {
-    BASE_EN(
-        "base.en", "Fast", "ggml-base.en.bin", 147_964_211,
-        "Results in about a second. Fine for clear speech.", shrinkWindow = true, threads = 3,
-    ),
+    // Listed in this order on the setup card and in Settings; Accurate is the default.
     SMALL_EN_Q5(
         "small.en-q5_1", "Accurate", "ggml-small.en-q5_1.bin", 190_098_681,
         "Best with names and unusual words. Takes a few seconds per note.", shrinkWindow = false, threads = 5,
+    ),
+    BASE_EN(
+        "base.en", "Fast", "ggml-base.en.bin", 147_964_211,
+        "Results in about a second. Fine for clear speech.", shrinkWindow = true, threads = 3,
     );
 
     val url: String get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName"

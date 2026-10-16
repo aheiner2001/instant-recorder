@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.data.Settings
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.data.volumeGestureHint
 import app.instantrecorder.tasks.Due
@@ -221,7 +222,8 @@ private fun SetupCard(vm: MainViewModel) {
                     WhisperModel.entries.forEach { model ->
                         OutlinedButton(onClick = { vm.downloadModel(model) }, modifier = Modifier.fillMaxWidth()) {
                             Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                                Text("${model.label} · ${model.sizeBytes / 1_000_000} MB", style = MaterialTheme.typography.titleSmall)
+                                val recommended = if (model.id == Settings().modelId) " · Recommended" else ""
+                                Text("${model.label} · ${model.sizeBytes / 1_000_000} MB$recommended", style = MaterialTheme.typography.titleSmall)
                                 Text(model.note, style = MaterialTheme.typography.bodySmall)
                             }
                         }

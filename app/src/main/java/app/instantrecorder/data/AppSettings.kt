@@ -33,7 +33,7 @@ data class Settings(
     /** Stop by itself after this much silence; 0 = never. */
     val silenceStopSec: Int = 8,
     val maxRecordingMin: Int = 5,
-    val modelId: String = "base.en",
+    val modelId: String = "small.en-q5_1", // "Accurate": clearly better on real notes, worth a few seconds
 )
 
 /** How to start a recording with the volume buttons, in words for UI hints. */
