@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.TaskItem
+import app.instantrecorder.data.volumeGestureHint
 import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.transcribe.WhisperModel
@@ -81,6 +82,7 @@ fun HomeScreen(vm: MainViewModel) {
     val recordings by vm.recordings.collectAsStateWithLifecycle()
     val tasks by vm.tasks.collectAsStateWithLifecycle()
     val transcribing by vm.transcribing.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
     val snackbar = remember { SnackbarHostState() }
@@ -140,7 +142,9 @@ fun HomeScreen(vm: MainViewModel) {
                 }
             }
             if (tab == 0) {
-                if (recordings.isEmpty()) item { EmptyHint("No recordings yet. Hold volume down, double-tap the back of the phone, or tap the mic.") }
+                if (recordings.isEmpty()) {
+                    item { EmptyHint("No recordings yet. To record, ${settings.volumeGestureHint}, double-tap the back of the phone, or tap the mic.") }
+                }
                 items(recordings, key = { it.id }) { r ->
                     SwipeToDelete(
                         // RecordingService is working on it.

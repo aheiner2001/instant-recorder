@@ -3,6 +3,6 @@
     <string name="quick_record_label">Quick Record</string>
     <string name="tile_label">Record note</string>
     <string name="accessibility_label">Instant Recorder volume-button trigger</string>
-    <string name="accessibility_description">Hold a volume button to start a voice recording. Quick presses still change the volume. The service only watches the volume buttons; it does not read your screen or what you type.</string>
+    <string name="accessibility_description">Press both volume buttons together to start a voice recording; press either one to stop. Normal volume presses work as usual. The service only watches the volume buttons; it does not read your screen or what you type.</string>
     <string name="shortcut_record">Record</string>
 </resources>

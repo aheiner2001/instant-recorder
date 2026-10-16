@@ -49,7 +49,7 @@ object Notifications {
         NotificationCompat.Builder(context, CHANNEL_RECORDING)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle("Recording…")
-            .setContentText("Press the button again or tap Stop when you're done")
+            .setContentText("Press a volume button or tap Stop when you're done")
             .setWhen(startedAt)
             .setUsesChronometer(true)
             .setShowWhen(true)

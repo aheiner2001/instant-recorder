@@ -19,6 +19,8 @@ import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import app.instantrecorder.R
 import app.instantrecorder.app
+import app.instantrecorder.data.Settings as RecorderSettings
+import app.instantrecorder.data.TriggerGesture
 import app.instantrecorder.data.TriggerMode
 import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
@@ -31,9 +33,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 
 /**
- * Watches the volume buttons (screen on, including the lock screen). Holding the trigger key starts a
- * recording; quick presses are passed on as normal volume changes. Android doesn't deliver volume
- * keys to apps while the screen is off.
+ * Watches the volume buttons, including on the lock screen and the always-on display. By default,
+ * pressing both together starts a recording ([VolumeChordDetector]); the legacy mode holds one button.
  */
 class VolumeKeyTriggerService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
@@ -48,10 +49,55 @@ class VolumeKeyTriggerService : AccessibilityService() {
         start()
     }
 
+    private val chord = VolumeChordDetector()
+    /** Media volume before the current press, so a chord can undo the step its first button made. */
+    private var volumeSnapshot: Int? = null
+
     override fun onKeyEvent(event: KeyEvent): Boolean {
         Log.d(TAG, "key=${event.keyCode} action=${event.action} repeat=${event.repeatCount}")
         val settings = app.settings.value
-        if (!settings.volumeTrigger || event.keyCode != settings.triggerKey.keyCode) return false
+        if (!settings.volumeTrigger) return false
+        if (event.keyCode != KeyEvent.KEYCODE_VOLUME_UP && event.keyCode != KeyEvent.KEYCODE_VOLUME_DOWN) return false
+        return when (settings.triggerGesture) {
+            TriggerGesture.BOTH_BUTTONS -> onChordKey(event, settings)
+            TriggerGesture.HOLD_ONE -> onHoldKey(event, settings)
+        }
+    }
+
+    private fun onChordKey(event: KeyEvent, settings: RecorderSettings): Boolean {
+        val down = event.action == KeyEvent.ACTION_DOWN
+        if (down && event.repeatCount == 0 && inCall()) {
+            chord.reset()
+            return false
+        }
+        val decision = chord.onKey(
+            event.keyCode, down, event.repeatCount, event.eventTime,
+            recording = RecorderState.isRecording,
+            holdToTalk = settings.triggerMode == TriggerMode.HOLD_TO_TALK,
+        )
+        for (effect in decision.effects) {
+            when (effect) {
+                VolumeChordDetector.Effect.SNAPSHOT_VOLUME -> volumeSnapshot = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                // Slightly delayed so it lands after Android has processed the pass-through key.
+                VolumeChordDetector.Effect.RESTORE_VOLUME -> handler.postDelayed(::restoreVolume, RESTORE_DELAY_MS)
+                VolumeChordDetector.Effect.START_RECORDING -> start()
+                VolumeChordDetector.Effect.STOP_RECORDING -> RecordingService.send(this, RecordingService.ACTION_STOP)
+            }
+        }
+        return decision.consume
+    }
+
+    private fun restoreVolume() {
+        val target = volumeSnapshot ?: return
+        // Can throw if the change would toggle Do Not Disturb; not worth failing a recording over.
+        runCatching {
+            if (audio.getStreamVolume(AudioManager.STREAM_MUSIC) != target) audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+        }
+    }
+
+    /** Legacy gesture: hold one button. Swallows every press of that button and replays quick ones. */
+    private fun onHoldKey(event: KeyEvent, settings: RecorderSettings): Boolean {
+        if (event.keyCode != settings.triggerKey.keyCode) return false
         if (!ownsPress && event.action == KeyEvent.ACTION_DOWN && inCall()) return false
 
         when (event.action) {
@@ -114,6 +160,7 @@ class VolumeKeyTriggerService : AccessibilityService() {
 
     companion object {
         private const val TAG = "VolumeKeyTrigger"
+        private const val RESTORE_DELAY_MS = 150L
 
         fun isEnabled(context: Context): Boolean {
             val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)

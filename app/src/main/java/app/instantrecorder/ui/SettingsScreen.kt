@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.instantrecorder.data.TriggerGesture
 import app.instantrecorder.data.TriggerKey
 import app.instantrecorder.data.TriggerMode
 import app.instantrecorder.transcribe.WhisperModel
@@ -75,12 +76,12 @@ fun SettingsScreen(vm: MainViewModel) {
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())) {
-            SectionHeader("Volume button")
+            SectionHeader("Volume buttons")
             ListItem(
-                headlineContent = { Text("Hold a volume button to record") },
+                headlineContent = { Text("Record with the volume buttons") },
                 supportingContent = {
                     Text(
-                        if (triggerOn) "Works whenever the screen is on, including the lock screen."
+                        if (triggerOn) "Works on the lock screen and the always-on display."
                         else "Needs the accessibility service: open Accessibility and switch on \"Instant Recorder volume-button trigger\"."
                     )
                 },
@@ -94,13 +95,39 @@ fun SettingsScreen(vm: MainViewModel) {
                     modifier = Modifier.padding(horizontal = 16.dp),
                 ) { Text("Open accessibility settings") }
             }
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(16.dp)) {
-                TriggerKey.entries.forEachIndexed { i, key ->
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
+                TriggerGesture.entries.forEachIndexed { i, gesture ->
                     SegmentedButton(
-                        selected = settings.triggerKey == key,
-                        onClick = { vm.updateSettings { it.copy(triggerKey = key) } },
-                        shape = SegmentedButtonDefaults.itemShape(i, TriggerKey.entries.size),
-                    ) { Text(key.label) }
+                        selected = settings.triggerGesture == gesture,
+                        onClick = { vm.updateSettings { it.copy(triggerGesture = gesture) } },
+                        shape = SegmentedButtonDefaults.itemShape(i, TriggerGesture.entries.size),
+                    ) { Text(gesture.label) }
+                }
+            }
+            Text(
+                settings.triggerGesture.description,
+                Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (settings.triggerGesture == TriggerGesture.HOLD_ONE) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    TriggerKey.entries.forEachIndexed { i, key ->
+                        SegmentedButton(
+                            selected = settings.triggerKey == key,
+                            onClick = { vm.updateSettings { it.copy(triggerKey = key) } },
+                            shape = SegmentedButtonDefaults.itemShape(i, TriggerKey.entries.size),
+                        ) { Text(key.label) }
+                    }
+                }
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text("Hold for %.1f seconds".format(settings.holdMs / 1000f))
+                    Slider(
+                        value = settings.holdMs.toFloat(),
+                        onValueChange = { v -> vm.updateSettings { it.copy(holdMs = v.toInt()) } },
+                        valueRange = 300f..1000f,
+                        steps = 6,
+                    )
                 }
             }
             TriggerMode.entries.forEach { mode ->
@@ -120,15 +147,6 @@ fun SettingsScreen(vm: MainViewModel) {
                         Text(mode.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-            }
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("Hold for %.1f seconds".format(settings.holdMs / 1000f))
-                Slider(
-                    value = settings.holdMs.toFloat(),
-                    onValueChange = { v -> vm.updateSettings { it.copy(holdMs = v.toInt()) } },
-                    valueRange = 300f..1000f,
-                    steps = 6,
-                )
             }
             ListItem(
                 headlineContent = { Text("Vibrate on start and stop") },
