@@ -1,0 +1,330 @@
+package app.instantrecorder.tasks
+
+import java.time.DayOfWeek
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
+import java.util.Locale
+
+data class Due(val epochMillis: Long, val hasTime: Boolean) {
+    fun label(now: ZonedDateTime = ZonedDateTime.now()): String {
+        val at = ZonedDateTime.ofInstant(java.time.Instant.ofEpochMilli(epochMillis), now.zone)
+        val days = ChronoUnit.DAYS.between(now.toLocalDate(), at.toLocalDate())
+        val day = when (days) {
+            0L -> "Today"
+            1L -> "Tomorrow"
+            -1L -> "Yesterday"
+            in 2L..6L -> at.format(DateTimeFormatter.ofPattern("EEEE", Locale.getDefault()))
+            else -> at.format(DateTimeFormatter.ofPattern("EEE, MMM d", Locale.getDefault()))
+        }
+        return if (hasTime) "$day ${at.format(DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT))}" else day
+    }
+}
+
+data class TaskSuggestion(
+    val title: String,
+    val due: Due?,
+    /** Looked like an instruction ("remind me to…", "call…") rather than narration. */
+    val actionable: Boolean,
+)
+
+/**
+ * Rule-based, on-device task extraction for English voice notes:
+ * split into clauses → pull out dates/times → strip "remind me to"-style lead-ins.
+ */
+object TaskExtractor {
+
+    fun extract(transcript: String, now: ZonedDateTime = ZonedDateTime.now()): List<TaskSuggestion> {
+        val text = normalize(transcript)
+        if (text.isBlank()) return emptyList()
+
+        val suggestions = text.split(SENTENCE_SPLIT)
+            .flatMap { it.split(CLAUSE_SPLIT) }
+            .mapNotNull { clause -> suggestionFor(clause, now) }
+            .distinctBy { it.title.lowercase() }
+            .take(MAX_SUGGESTIONS)
+
+        if (suggestions.isNotEmpty()) return suggestions
+        // Nothing usable after cleanup: offer the note itself as one task.
+        return listOf(TaskSuggestion(capitalize(text.take(MAX_TITLE).trim()), null, actionable = false))
+    }
+
+    /** Pulls date/time phrases out of [input]; returns the due date and the text without them. */
+    fun parseDue(input: String, now: ZonedDateTime = ZonedDateTime.now()): Pair<Due?, String> {
+        val p = DueParser(input, now)
+        return p.parse() to p.remaining
+    }
+
+    private fun suggestionFor(clause: String, now: ZonedDateTime): TaskSuggestion? {
+        val (due, withoutDates) = parseDue(clause, now)
+        var title = stripFillers(withoutDates)
+        val leadIn = LEAD_IN.find(title)
+        if (leadIn != null) title = title.substring(leadIn.range.last + 1)
+        title = cleanup(stripFillers(title))
+        if (title.isEmpty()) return null
+
+        val words = title.split(' ')
+        val firstWord = words.first().lowercase()
+        val actionable = leadIn != null || firstWord in ACTION_VERBS
+        // Tiny fragments ("Yeah", "I") are leftovers from splitting, not tasks.
+        if (words.size < 2 && !actionable) return null
+        return TaskSuggestion(capitalize(title.take(MAX_TITLE)), due, actionable)
+    }
+
+    private fun normalize(raw: String): String = raw
+        .replace('\u2019', '\'')
+        .replace(Regex("""\b([aApP])\.\s?[mM]\.?"""), "$1m")
+        .replace(Regex("""\b(Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc)\.""", RegexOption.IGNORE_CASE), "$1")
+        .replace(Regex("""\s+"""), " ")
+        .trim()
+
+    private fun stripFillers(s: String): String = s.trim().replace(LEADING_FILLER, "")
+
+    private fun cleanup(s: String): String {
+        var t = s.replace(Regex("""\s+([,.;:!?])"""), "$1").replace(Regex("""\s+"""), " ").trim()
+        var previous: String
+        do {
+            previous = t
+            t = t.replace(TRAILING_JUNK, "").replace(Regex("""^[\s,.;:!?-]+"""), "").trim()
+        } while (t != previous)
+        return t
+    }
+
+    private fun capitalize(s: String) = s.replaceFirstChar { it.titlecase(Locale.getDefault()) }
+
+    private const val MAX_SUGGESTIONS = 10
+    private const val MAX_TITLE = 140
+
+    private val SENTENCE_SPLIT = Regex("""(?<=[.!?;])\s+|\n+""")
+    private val CLAUSE_SPLIT = Regex(
+        """,?\s+(?:and then|and also|after that|then also)\s+|,\s+(?:then|also|plus)\s+|""" +
+            """,?\s+and\s+(?=(?:i\s+(?:also\s+)?(?:need|have|should|must|gotta|want|got)|remind me|don'?t forget|remember to)\b)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val LEADING_FILLER = Regex(
+        """^(?:(?:ok(?:ay)?|so|um+|uh+|uhm|hmm+|well|alright|all right|right|hey|and|but|also|then|plus|now|oh|yeah|yes)\b[,\s]*)+""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val LEAD_IN = Regex(
+        "^(?:please\\s+)?(?:" +
+            "(?:can you |could you )?remind me (?:to |that i (?:need|have) to |about )|" +
+            "(?:i|we) (?:really |also |still |definitely )?(?:need|have|must|should|want|ought) (?:to )?|" +
+            "(?:i|we)(?:'ve| have) got to |(?:i|we) (?:gotta|got to) |(?:i|we)(?:'d| would) like to |" +
+            "(?:i|we)(?:'ll| will)(?: need to| have to)? |(?:i'm|i am|we're|we are) (?:going to|gonna) |" +
+            "(?:don'?t|do not) forget (?:to )?|remember to |make sure (?:to |that i |i )?|" +
+            "note to self[:,]?\\s*|to-?do[:,]?\\s*|task[:,]?\\s*|(?:add|create) (?:a )?(?:task|reminder|to-?do) (?:to )?|" +
+            "need to |have to |got to |gotta |must |let'?s " +
+            ")",
+        RegexOption.IGNORE_CASE,
+    )
+    private val TRAILING_JUNK = Regex(
+        """(?:\s+(?:on|at|by|for|in|this|next|the|before|until|around|and|or|to)|[\s,.;:!?-])+$""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val ACTION_VERBS = setOf(
+        "ask", "back", "book", "bring", "buy", "call", "cancel", "charge", "check", "clean", "clear", "confirm",
+        "contact", "cook", "deploy", "do", "drop", "email", "e-mail", "feed", "file", "fill", "find", "finish",
+        "fix", "follow", "get", "go", "grab", "invite", "look", "make", "meet", "merge", "message", "order",
+        "organize", "pack", "pay", "pick", "ping", "plan", "post", "prepare", "print", "push", "read", "register",
+        "renew", "reply", "research", "reserve", "respond", "return", "review", "schedule", "send", "set",
+        "share", "sign", "sort", "start", "submit", "take", "talk", "tell", "test", "text", "update", "upload",
+        "visit", "wash", "water", "write",
+    )
+}
+
+/** Finds the first usable date and time phrases in [input], removing them from [remaining]. */
+private class DueParser(input: String, private val now: ZonedDateTime) {
+    var remaining = input
+        private set
+    private var date: LocalDate? = null
+    private var time: LocalTime? = null
+    private var dateTime: ZonedDateTime? = null
+    private var partOfDay: LocalTime? = null
+    private val today = now.toLocalDate()
+
+    fun parse(): Due? {
+        consume(IN_DURATION) { m ->
+            val amount = numberWord(m.groupValues[1]) ?: return@consume false
+            val unit = m.groupValues[2].lowercase()
+            when {
+                unit.startsWith("min") -> dateTime = now.plusMinutes(amount.toLong())
+                unit.startsWith("h") -> dateTime = now.plusMinutes((amount * 60).toLong())
+                unit.startsWith("d") -> date = today.plusDays(amount.toLong())
+                unit.startsWith("w") -> date = today.plusWeeks(amount.toLong())
+                else -> return@consume false
+            }
+            true
+        }
+        consume(IN_HALF_HOUR) { dateTime = now.plusMinutes(30); true }
+        consume(RELATIVE_DAY) { m ->
+            if (date != null) return@consume false
+            date = when (m.groupValues[1].lowercase()) {
+                "today" -> today
+                "tonight" -> today.also { partOfDay = NIGHT }
+                "the day after tomorrow" -> today.plusDays(2)
+                else -> today.plusDays(1)
+            }
+            partOfDayFrom(m.groupValues[2])
+            true
+        }
+        consume(THIS_PART_OF_DAY) { m ->
+            if (date == null) date = today
+            partOfDayFrom(m.groupValues[1])
+            true
+        }
+        consume(WEEK_PHRASE) { m ->
+            if (date != null) return@consume false
+            val phrase = m.groupValues[1].lowercase().replace(Regex("""\s+"""), " ")
+            when {
+                phrase == "next week" -> date = today.with(TemporalAdjusters.next(DayOfWeek.MONDAY))
+                phrase == "this weekend" -> date = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY))
+                    .let { if (today.dayOfWeek == DayOfWeek.SUNDAY) today else it }
+                phrase == "next weekend" -> date = today.with(TemporalAdjusters.next(DayOfWeek.SATURDAY)).plusWeeks(
+                    if (today.dayOfWeek == DayOfWeek.SATURDAY || today.dayOfWeek == DayOfWeek.SUNDAY) 0 else 1
+                )
+                phrase.endsWith("day") -> { date = today; if (time == null) time = END_OF_DAY }
+                phrase.endsWith("week") -> date = today.with(TemporalAdjusters.nextOrSame(DayOfWeek.FRIDAY))
+                phrase.endsWith("month") -> date = today.with(TemporalAdjusters.lastDayOfMonth())
+                else -> return@consume false
+            }
+            true
+        }
+        consume(WEEKDAY) { m ->
+            if (date != null) return@consume false
+            val target = DayOfWeek.valueOf(m.groupValues[3].uppercase())
+            val qualifier = (m.groupValues[2].ifEmpty { m.groupValues[1] }).lowercase()
+            var ahead = (target.value - today.dayOfWeek.value + 7) % 7
+            if (ahead == 0 && qualifier != "this") ahead = 7
+            var d = today.plusDays(ahead.toLong())
+            if (qualifier == "next" && !d.isAfter(today.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY)))) {
+                d = d.plusWeeks(1)
+            }
+            date = d
+            partOfDayFrom(m.groupValues[4])
+            true
+        }
+        consume(MONTH_DAY) { m ->
+            if (date != null) return@consume false
+            val day = (m.groupValues[1].ifEmpty { m.groupValues[3] }).toIntOrNull() ?: return@consume false
+            val month = MONTHS.indexOfFirst { m.groupValues[2].lowercase().startsWith(it) } + 1
+            if (month == 0) return@consume false
+            val candidate = runCatching { LocalDate.of(today.year, month, day) }.getOrNull() ?: return@consume false
+            date = if (candidate.isBefore(today)) candidate.plusYears(1) else candidate
+            true
+        }
+        consume(ORDINAL_DAY) { m ->
+            if (date != null) return@consume false
+            val day = m.groupValues[1].toInt()
+            val thisMonth = runCatching { today.withDayOfMonth(day) }.getOrNull() ?: return@consume false
+            date = if (thisMonth.isBefore(today)) thisMonth.plusMonths(1) else thisMonth
+            true
+        }
+        consume(NAMED_TIME) { m ->
+            if (time != null) return@consume false
+            time = if (m.groupValues[1].lowercase() == "midnight") LocalTime.of(23, 59) else LocalTime.NOON
+            true
+        }
+        consume(PREFIXED_TIME) { m -> time == null && setClock(m.groupValues[1], m.groupValues[2], m.groupValues[3]) }
+        consume(BARE_TIME) { m -> time == null && setClock(m.groupValues[1], m.groupValues[2], m.groupValues[3]) }
+
+        dateTime?.let { dt ->
+            return Due(dt.toInstant().toEpochMilli(), hasTime = true)
+        }
+        val t = time ?: partOfDay
+        val d = date ?: if (t != null) {
+            if (today.atTime(t).atZone(now.zone).isAfter(now)) today else today.plusDays(1)
+        } else {
+            return null
+        }
+        return if (t != null) {
+            Due(d.atTime(t).atZone(now.zone).toInstant().toEpochMilli(), hasTime = true)
+        } else {
+            Due(d.atStartOfDay(now.zone).toInstant().toEpochMilli(), hasTime = false)
+        }
+    }
+
+    private fun setClock(hourText: String, minuteText: String, marker: String): Boolean {
+        var hour = hourText.toIntOrNull() ?: return false
+        val minute = minuteText.toIntOrNull() ?: 0
+        if (hour > 23 || minute > 59) return false
+        when (marker.lowercase()) {
+            "am" -> if (hour == 12) hour = 0
+            "pm" -> if (hour < 12) hour += 12
+            // No am/pm: people mean 1–7 in the afternoon/evening far more often than at night.
+            else -> if (hour in 1..7) hour += 12
+        }
+        time = LocalTime.of(hour % 24, minute)
+        return true
+    }
+
+    private fun partOfDayFrom(word: String) {
+        partOfDay = when (word.lowercase()) {
+            "morning" -> MORNING
+            "afternoon" -> AFTERNOON
+            "evening" -> EVENING
+            "night" -> NIGHT
+            else -> partOfDay
+        }
+    }
+
+    /** Removes the first match the handler accepts. */
+    private fun consume(regex: Regex, handler: (MatchResult) -> Boolean) {
+        for (m in regex.findAll(remaining)) {
+            if (handler(m)) {
+                remaining = (remaining.substring(0, m.range.first) + " " + remaining.substring(m.range.last + 1))
+                return
+            }
+        }
+    }
+
+    private fun numberWord(s: String): Int? = s.lowercase().let { w ->
+        w.toIntOrNull() ?: NUMBER_WORDS[w]
+    }
+
+    companion object {
+        private val MORNING = LocalTime.of(9, 0)
+        private val AFTERNOON = LocalTime.of(14, 0)
+        private val EVENING = LocalTime.of(18, 0)
+        private val NIGHT = LocalTime.of(20, 0)
+        private val END_OF_DAY = LocalTime.of(17, 0)
+
+        private val NUMBER_WORDS = mapOf(
+            "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6,
+            "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "eleven" to 11, "twelve" to 12,
+            "fifteen" to 15, "twenty" to 20, "thirty" to 30, "forty-five" to 45, "a couple of" to 2, "a few" to 3,
+        )
+        private val MONTHS = listOf("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+
+        private val I = RegexOption.IGNORE_CASE
+        private val IN_DURATION = Regex(
+            """\b(?:in|within)\s+(\d+|a couple of|a few|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|fifteen|twenty|thirty|forty-five)\s+(minutes?|mins?|hours?|hrs?|days?|weeks?)\b""",
+            I,
+        )
+        private val IN_HALF_HOUR = Regex("""\bin\s+(?:half an hour|a half hour|half hour)\b""", I)
+        private val RELATIVE_DAY = Regex(
+            """\b(?:on\s+|by\s+|for\s+)?(the day after tomorrow|today|tonight|tomorrow)\b(?:\s+(morning|afternoon|evening|night))?""",
+            I,
+        )
+        private val THIS_PART_OF_DAY = Regex("""\b(?:this|in the)\s+(morning|afternoon|evening)\b""", I)
+        private val WEEK_PHRASE = Regex(
+            """\b(?:by\s+|for\s+|at\s+)?(next week|this weekend|next weekend|(?:the\s+)?end of (?:the\s+)?(?:day|week|month))\b""",
+            I,
+        )
+        private val WEEKDAY = Regex(
+            """\b(?:(on|by|this|next|until|before|for)\s+)?(?:(this|next)\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b(?:\s+(morning|afternoon|evening|night))?""",
+            I,
+        )
+        private val MONTH_DAY = Regex(
+            """\b(?:on\s+|by\s+)?(?:the\s+)?(?:(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?)?(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\.?(?:\s+(\d{1,2})(?:st|nd|rd|th)?)?\b""",
+            I,
+        )
+        private val ORDINAL_DAY = Regex("""\b(?:on|by)\s+the\s+(\d{1,2})(?:st|nd|rd|th)\b""", I)
+        private val NAMED_TIME = Regex("""\b(?:at|by|around|before)?\s*(noon|midday|midnight)\b""", I)
+        private val PREFIXED_TIME = Regex("""\b(?:at|by|around|before)\s+(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|o'?clock)?\b""", I)
+        private val BARE_TIME = Regex("""\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm)\b""", I)
+    }
+}

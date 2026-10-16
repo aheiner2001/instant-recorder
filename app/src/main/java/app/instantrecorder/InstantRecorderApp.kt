@@ -1,0 +1,40 @@
+package app.instantrecorder
+
+import android.app.Application
+import android.content.Context
+import androidx.room.Room
+import app.instantrecorder.data.AppDatabase
+import app.instantrecorder.data.AppSettings
+import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.transcribe.ModelManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+
+/** Process-wide singletons. The accessibility service, recording service and UI all share them. */
+class InstantRecorderApp : Application() {
+    val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    lateinit var db: AppDatabase
+        private set
+    lateinit var settings: AppSettings
+        private set
+    lateinit var models: ModelManager
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        db = Room.databaseBuilder(this, AppDatabase::class.java, "instant-recorder.db").build()
+        settings = AppSettings(this)
+        models = ModelManager(this, appScope, settings)
+        Notifications.createChannels(this)
+
+        // A transcription can't survive process death, so anything left "in progress" goes back to the queue state.
+        appScope.launch {
+            db.recordings().resetStatus(from = RecordingStatus.TRANSCRIBING, to = RecordingStatus.RECORDED)
+        }
+    }
+}
+
+val Context.app: InstantRecorderApp get() = applicationContext as InstantRecorderApp

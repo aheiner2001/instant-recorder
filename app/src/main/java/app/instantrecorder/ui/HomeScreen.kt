@@ -1,0 +1,286 @@
+package app.instantrecorder.ui
+
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LargeFloatingActionButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.instantrecorder.data.Recording
+import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.data.TaskItem
+import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.TaskIntents
+import app.instantrecorder.transcribe.WhisperModel
+import app.instantrecorder.trigger.VolumeKeyTriggerService
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(vm: MainViewModel) {
+    val context = LocalContext.current
+    val recordings by vm.recordings.collectAsStateWithLifecycle()
+    val tasks by vm.tasks.collectAsStateWithLifecycle()
+    val transcribing by vm.transcribing.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableIntStateOf(0) }
+
+    val recordPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) vm.toggleRecording()
+    }
+    val onRecord = {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            vm.toggleRecording()
+        } else {
+            recordPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Instant Recorder") },
+                actions = {
+                    IconButton(onClick = { vm.open(Route.Settings) }) { Icon(Icons.Filled.Settings, "Settings") }
+                },
+            )
+        },
+        floatingActionButton = {
+            LargeFloatingActionButton(onClick = onRecord) { Icon(Icons.Filled.Mic, "Record", Modifier.size(36.dp)) }
+        },
+    ) { padding ->
+        LazyColumn(
+            contentPadding = PaddingValues(
+                top = padding.calculateTopPadding(),
+                bottom = padding.calculateBottomPadding() + 120.dp,
+            ),
+        ) {
+            item { SetupCard(vm) }
+            item {
+                PrimaryTabRow(selectedTabIndex = tab) {
+                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Recordings") })
+                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Tasks (${tasks.count { !it.done }})") })
+                }
+            }
+            if (tab == 0) {
+                if (recordings.isEmpty()) item { EmptyHint("No recordings yet. Hold volume down, double-tap the back of the phone, or tap the mic.") }
+                items(recordings, key = { it.id }) { r ->
+                    RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
+                }
+            } else {
+                if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds.") }
+                items(tasks, key = { it.id }) { t ->
+                    TaskRow(
+                        task = t,
+                        onDone = { vm.setTaskDone(t, it) },
+                        onCalendar = {
+                            context.launchSafely(
+                                TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
+                            )
+                        },
+                        onDelete = { vm.deleteTask(t) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Shows only the steps that are still missing; disappears once everything is set up. */
+@Composable
+private fun SetupCard(vm: MainViewModel) {
+    val context = LocalContext.current
+    val tick = rememberResumeTick()
+    val installed by vm.installedModels.collectAsStateWithLifecycle()
+    val downloads by vm.downloads.collectAsStateWithLifecycle()
+    var permissionTick by remember { mutableIntStateOf(0) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { permissionTick++ }
+
+    val (hasMic, hasNotifications, triggerOn) = remember(tick, permissionTick) {
+        Triple(
+            context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED,
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            VolumeKeyTriggerService.isEnabled(context),
+        )
+    }
+    val hasModel = installed.isNotEmpty()
+    if (hasMic && hasNotifications && hasModel && triggerOn) return
+
+    OutlinedCard(Modifier.fillMaxWidth().padding(16.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Finish setting up", style = MaterialTheme.typography.titleMedium)
+            if (!hasMic) {
+                SetupStep("Allow the microphone", "Needed to record.") {
+                    Button(onClick = { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }) { Text("Allow") }
+                }
+            }
+            if (!hasNotifications) {
+                SetupStep("Allow notifications", "Shows the recording controls and the tasks it found.") {
+                    Button(onClick = { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }) { Text("Allow") }
+                }
+            }
+            if (!hasModel) {
+                val model = WhisperModel.BASE_EN
+                val progress = downloads[model]
+                SetupStep(
+                    "Download the speech model",
+                    "One-time ${model.sizeBytes / 1_000_000} MB download. Transcription then runs offline on this phone.",
+                ) {
+                    if (progress != null) {
+                        Text("${(progress * 100).toInt()}%")
+                    } else {
+                        Button(onClick = { vm.downloadModel(model) }) { Text("Download") }
+                    }
+                }
+                if (progress != null) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+            }
+            if (!triggerOn) {
+                SetupStep(
+                    "Turn on the volume-button trigger",
+                    "In Accessibility, open \"Instant Recorder volume-button trigger\" and switch it on.",
+                ) {
+                    Button(onClick = { context.launchSafely(VolumeKeyTriggerService.settingsIntent(context)) }) { Text("Open") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupStep(title: String, detail: String, action: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        action()
+    }
+}
+
+@Composable
+private fun EmptyHint(text: String) {
+    Text(
+        text,
+        Modifier.fillMaxWidth().padding(32.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private val timestampFormat = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+
+fun formatTimestamp(millis: Long): String =
+    Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(timestampFormat)
+
+@Composable
+private fun RecordingRow(recording: Recording, progress: Int?, onClick: () -> Unit) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(formatTimestamp(recording.createdAt), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                Text(formatDuration(recording.durationMs), style = MaterialTheme.typography.labelLarge)
+            }
+            val muted = MaterialTheme.colorScheme.onSurfaceVariant
+            when (recording.status) {
+                RecordingStatus.DONE -> Text(
+                    recording.transcript.orEmpty(), maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                RecordingStatus.TRANSCRIBING -> {
+                    Text("Transcribing… ${progress ?: 0}%", color = muted)
+                    LinearProgressIndicator(progress = { (progress ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
+                }
+                RecordingStatus.RECORDED -> Text("Waiting to transcribe", color = muted)
+                RecordingStatus.NEEDS_MODEL -> Text("Download a speech model to transcribe this", color = muted)
+                RecordingStatus.NO_SPEECH -> Text("No speech detected", color = muted)
+                RecordingStatus.FAILED -> Text("Transcription failed: ${recording.error}", color = MaterialTheme.colorScheme.error)
+            }
+            if (recording.tasksCreated > 0) {
+                Text(
+                    if (recording.tasksCreated == 1) "1 task created" else "${recording.tasksCreated} tasks created",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskRow(task: TaskItem, onDone: (Boolean) -> Unit, onCalendar: () -> Unit, onDelete: () -> Unit) {
+    val due = task.dueAt?.let { Due(it, task.dueHasTime) }
+    val overdue = !task.done && task.dueAt != null && task.dueHasTime && task.dueAt < System.currentTimeMillis()
+    ListItem(
+        leadingContent = { Checkbox(checked = task.done, onCheckedChange = onDone) },
+        headlineContent = {
+            Text(task.title, textDecoration = if (task.done) TextDecoration.LineThrough else null)
+        },
+        supportingContent = due?.let {
+            { Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+        },
+        trailingContent = {
+            Row {
+                IconButton(onClick = onCalendar) { Icon(Icons.Filled.Event, "Add to calendar") }
+                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "Delete") }
+            }
+        },
+    )
+}
+
+@Composable
+fun SectionHeader(text: String) {
+    Text(
+        text,
+        Modifier.padding(start = 16.dp, end = 16.dp, top = 24.dp, bottom = 8.dp),
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
