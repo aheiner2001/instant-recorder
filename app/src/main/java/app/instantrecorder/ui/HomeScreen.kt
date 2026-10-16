@@ -4,10 +4,13 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -32,6 +35,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxDefaults
+import androidx.compose.material3.SwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -39,6 +50,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +68,7 @@ import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.transcribe.WhisperModel
 import app.instantrecorder.trigger.VolumeKeyTriggerService
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -68,6 +82,24 @@ fun HomeScreen(vm: MainViewModel) {
     val tasks by vm.tasks.collectAsStateWithLifecycle()
     val transcribing by vm.transcribing.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
+
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val deleteWithUndo = { r: Recording ->
+        vm.hideForDeletion(r)
+        scope.launch {
+            // A newer swipe takes over the snackbar, which commits the previous deletion.
+            snackbar.currentSnackbarData?.dismiss()
+            var undo = false
+            try {
+                undo = snackbar.showSnackbar("Recording deleted", "Undo", duration = SnackbarDuration.Long) ==
+                    SnackbarResult.ActionPerformed
+            } finally {
+                // Also reached when Home leaves composition (navigation, rotation, finishing) with the snackbar up.
+                if (undo) vm.undoDeletion(r) else vm.commitDeletion(r)
+            }
+        }
+    }
 
     val recordPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) vm.toggleRecording()
@@ -92,6 +124,7 @@ fun HomeScreen(vm: MainViewModel) {
         floatingActionButton = {
             LargeFloatingActionButton(onClick = onRecord) { Icon(Icons.Filled.Mic, "Record", Modifier.size(36.dp)) }
         },
+        snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         LazyColumn(
             contentPadding = PaddingValues(
@@ -109,7 +142,14 @@ fun HomeScreen(vm: MainViewModel) {
             if (tab == 0) {
                 if (recordings.isEmpty()) item { EmptyHint("No recordings yet. Hold volume down, double-tap the back of the phone, or tap the mic.") }
                 items(recordings, key = { it.id }) { r ->
-                    RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
+                    SwipeToDelete(
+                        // RecordingService is working on it.
+                        enabled = r.status != RecordingStatus.TRANSCRIBING,
+                        onDelete = { deleteWithUndo(r) },
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                    ) {
+                        RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
+                    }
                 }
             } else {
                 if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds.") }
@@ -216,11 +256,46 @@ private val timestampFormat = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.
 fun formatTimestamp(millis: Long): String =
     Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(timestampFormat)
 
+/** Swipe end-to-start to delete, over an error-colored background shaped like the card. */
+@Composable
+private fun SwipeToDelete(
+    enabled: Boolean,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    // Not rememberSwipeToDismissBoxState(): it's saveable, and the list keeps saved state per key, so after
+    // Undo the row would come back already dismissed and fire onDismiss again.
+    val threshold = SwipeToDismissBoxDefaults.positionalThreshold
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, threshold) }
+    // onDismiss is an effect key inside SwipeToDismissBox; a stable lambda keeps it from firing twice.
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    SwipeToDismissBox(
+        state = state,
+        modifier = modifier,
+        enableDismissFromStartToEnd = false,
+        gesturesEnabled = enabled,
+        onDismiss = { currentOnDelete() },
+        backgroundContent = {
+            if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                Box(
+                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error, CardDefaults.shape).padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.CenterEnd,
+                ) {
+                    Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onError)
+                }
+            }
+        },
+    ) {
+        content()
+    }
+}
+
 @Composable
 private fun RecordingRow(recording: Recording, progress: Int?, onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+        modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

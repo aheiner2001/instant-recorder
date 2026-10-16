@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.instantrecorder.Notifications
 import app.instantrecorder.app
 import app.instantrecorder.data.Recording
+import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.Settings
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.recording.RecorderState
@@ -20,7 +21,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -37,8 +40,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _route = MutableStateFlow<Route>(Route.Home)
     val route: StateFlow<Route> = _route.asStateFlow()
 
-    val recordings: StateFlow<List<Recording>> = graph.db.recordings().observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    /**
+     * Recordings swiped away on the home screen: hidden at once, deleted only when their undo snackbar goes away.
+     * Ids stay here after the delete so the row can't flash back before Room re-emits (Room never reuses them).
+     */
+    private val hiddenRecordings = MutableStateFlow<Set<Long>>(emptySet())
+
+    val recordings: StateFlow<List<Recording>> =
+        combine(graph.db.recordings().observeAll(), hiddenRecordings) { all, hidden -> all.filterNot { it.id in hidden } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val tasks: StateFlow<List<TaskItem>> = graph.db.tasks().observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -68,11 +78,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteRecording(recording: Recording) {
-        viewModelScope.launch(Dispatchers.IO) {
-            File(recording.filePath).delete()
-            graph.db.recordings().delete(recording)
-            Notifications.cancelResult(context, recording.id)
+        viewModelScope.launch(Dispatchers.IO) { delete(recording) }
+    }
+
+    fun hideForDeletion(recording: Recording) = hiddenRecordings.update { it + recording.id }
+    fun undoDeletion(recording: Recording) = hiddenRecordings.update { it - recording.id }
+
+    fun commitDeletion(recording: Recording) {
+        // App scope: when the activity finishes with a snackbar up, this runs after viewModelScope is cancelled.
+        graph.appScope.launch(Dispatchers.IO) {
+            val current = graph.db.recordings().get(recording.id) ?: return@launch
+            // A queued recording can get picked up for transcription while its snackbar is showing.
+            if (current.status == RecordingStatus.TRANSCRIBING) undoDeletion(current) else delete(current)
         }
+    }
+
+    private suspend fun delete(recording: Recording) {
+        File(recording.filePath).delete()
+        graph.db.recordings().delete(recording)
+        Notifications.cancelResult(context, recording.id)
     }
 
     fun saveTranscript(recordingId: Long, text: String) {
