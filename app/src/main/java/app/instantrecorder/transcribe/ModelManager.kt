@@ -26,14 +26,18 @@ import java.net.URL
  * screen on (its threads mostly wait on each other). Small does far more work per step: 5 threads 5.4 s,
  * 3 threads 7.6 s, 6 threads 6.1 s.
  */
+/** Users see [label] ("Fast"/"Accurate"); whisper's own names (base.en, small.en) stay internal. */
 enum class WhisperModel(
     val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String,
     val shrinkWindow: Boolean, val threads: Int,
 ) {
-    BASE_EN("base.en", "Base", "ggml-base.en.bin", 147_964_211, "Fast; fine for clear speech", shrinkWindow = true, threads = 3),
+    BASE_EN(
+        "base.en", "Fast", "ggml-base.en.bin", 147_964_211,
+        "Results in about a second. Fine for clear speech.", shrinkWindow = true, threads = 3,
+    ),
     SMALL_EN_Q5(
-        "small.en-q5_1", "Small", "ggml-small.en-q5_1.bin", 190_098_681,
-        "Most accurate with names and uncommon words; a few seconds per note", shrinkWindow = false, threads = 5,
+        "small.en-q5_1", "Accurate", "ggml-small.en-q5_1.bin", 190_098_681,
+        "Best with names and unusual words. Takes a few seconds per note.", shrinkWindow = false, threads = 5,
     );
 
     val url: String get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName"

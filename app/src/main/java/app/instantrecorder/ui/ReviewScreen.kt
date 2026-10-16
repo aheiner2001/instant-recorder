@@ -66,6 +66,7 @@ import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.tasks.TaskSuggestion
+import app.instantrecorder.transcribe.WhisperModel
 import kotlinx.coroutines.launch
 
 /** A suggested task while it's being edited on the review screen. */
@@ -209,7 +210,10 @@ private fun StatusBlock(rec: Recording, progress: Int?, vm: MainViewModel) {
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val meta = buildString {
             append(formatDuration(rec.durationMs))
-            if (rec.transcribeMs != null) append(" · transcribed in %.1fs with %s".format(rec.transcribeMs / 1000f, rec.modelId))
+            if (rec.transcribeMs != null) {
+                val model = rec.modelId?.let { WhisperModel.byId(it)?.label ?: it }
+                append(" · transcribed in %.1fs with the %s model".format(rec.transcribeMs / 1000f, model))
+            }
         }
         Text(meta, style = MaterialTheme.typography.labelMedium, color = muted)
         when (rec.status) {

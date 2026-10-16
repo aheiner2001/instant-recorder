@@ -215,7 +215,7 @@ private fun SetupCard(vm: MainViewModel) {
                 ) {}
                 val downloading = downloads.entries.firstOrNull()
                 if (downloading != null) {
-                    Text("Downloading ${downloading.key.label}… ${(downloading.value * 100).toInt()}%")
+                    Text("Downloading the ${downloading.key.label} model… ${(downloading.value * 100).toInt()}%")
                     LinearProgressIndicator(progress = { downloading.value }, modifier = Modifier.fillMaxWidth())
                 } else {
                     WhisperModel.entries.forEach { model ->
