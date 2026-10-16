@@ -49,6 +49,7 @@ class VolumeKeyTriggerService : AccessibilityService() {
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
+        Log.d(TAG, "key=${event.keyCode} action=${event.action} repeat=${event.repeatCount}")
         val settings = app.settings.value
         if (!settings.volumeTrigger || event.keyCode != settings.triggerKey.keyCode) return false
         if (!ownsPress && event.action == KeyEvent.ACTION_DOWN && inCall()) return false

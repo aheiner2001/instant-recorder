@@ -99,10 +99,21 @@ object TaskExtractor {
     private const val MAX_SUGGESTIONS = 10
     private const val MAX_TITLE = 140
 
+    private val ACTION_VERBS = setOf(
+        "ask", "back", "book", "bring", "buy", "call", "cancel", "charge", "check", "clean", "clear", "confirm",
+        "contact", "cook", "deploy", "do", "drop", "email", "e-mail", "feed", "file", "fill", "find", "finish",
+        "fix", "follow", "get", "go", "grab", "invite", "look", "make", "meet", "merge", "message", "order",
+        "organize", "pack", "pay", "pick", "ping", "plan", "post", "prepare", "print", "push", "read", "register",
+        "renew", "reply", "research", "reserve", "respond", "return", "review", "schedule", "send", "set",
+        "share", "sign", "sort", "start", "submit", "take", "talk", "tell", "test", "text", "update", "upload",
+        "visit", "wash", "water", "write",
+    )
     private val SENTENCE_SPLIT = Regex("""(?<=[.!?;])\s+|\n+""")
     private val CLAUSE_SPLIT = Regex(
         """,?\s+(?:and then|and also|after that|then also)\s+|,\s+(?:then|also|plus)\s+|""" +
-            """,?\s+and\s+(?=(?:i\s+(?:also\s+)?(?:need|have|should|must|gotta|want|got)|remind me|don'?t forget|remember to)\b)""",
+            """,?\s+and\s+(?=(?:i\s+(?:also\s+)?(?:need|have|should|must|gotta|want|got)|remind me|don'?t forget|remember to)\b)|""" +
+            // "…dentist appointment, and email Sarah…": a comma plus a verb starts a new task.
+            """,\s+and\s+(?=(?:${ACTION_VERBS.joinToString("|")})\b)""",
         RegexOption.IGNORE_CASE,
     )
     private val LEADING_FILLER = Regex(
@@ -124,15 +135,6 @@ object TaskExtractor {
     private val TRAILING_JUNK = Regex(
         """(?:\s+(?:on|at|by|for|in|this|next|the|before|until|around|and|or|to)|[\s,.;:!?-])+$""",
         RegexOption.IGNORE_CASE,
-    )
-    private val ACTION_VERBS = setOf(
-        "ask", "back", "book", "bring", "buy", "call", "cancel", "charge", "check", "clean", "clear", "confirm",
-        "contact", "cook", "deploy", "do", "drop", "email", "e-mail", "feed", "file", "fill", "find", "finish",
-        "fix", "follow", "get", "go", "grab", "invite", "look", "make", "meet", "merge", "message", "order",
-        "organize", "pack", "pay", "pick", "ping", "plan", "post", "prepare", "print", "push", "read", "register",
-        "renew", "reply", "research", "reserve", "respond", "return", "review", "schedule", "send", "set",
-        "share", "sign", "sort", "start", "submit", "take", "talk", "tell", "test", "text", "update", "upload",
-        "visit", "wash", "water", "write",
     )
 }
 

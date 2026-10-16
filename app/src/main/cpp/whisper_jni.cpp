@@ -39,7 +39,7 @@ Java_app_instantrecorder_transcribe_WhisperLib_nativeFree(JNIEnv *, jobject, jlo
 // valid "modified UTF-8", which would abort NewStringUTF under CheckJNI), or null on failure.
 JNIEXPORT jbyteArray JNICALL
 Java_app_instantrecorder_transcribe_WhisperLib_nativeTranscribe(
-        JNIEnv *env, jobject, jlong ctx_ptr, jfloatArray audio, jint n_threads, jstring language) {
+        JNIEnv *env, jobject, jlong ctx_ptr, jfloatArray audio, jint n_threads, jint audio_ctx, jstring language) {
     auto *ctx = reinterpret_cast<whisper_context *>(ctx_ptr);
     const jsize n_samples = env->GetArrayLength(audio);
     jfloat *samples = env->GetFloatArrayElements(audio, nullptr);
@@ -58,6 +58,7 @@ Java_app_instantrecorder_transcribe_WhisperLib_nativeTranscribe(
     params.print_timestamps = false;
     params.suppress_blank = true;
     params.suppress_nst = true;
+    params.audio_ctx = audio_ctx; // 0 = full 30 s window
 
     g_progress.store(0);
     g_abort.store(false);

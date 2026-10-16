@@ -100,6 +100,26 @@ class TaskExtractorTest {
     }
 
     @Test
+    fun `comma and verb splits tasks (real whisper output)`() {
+        val tasks = extract(
+            "Okay, so remind me to call Mom tomorrow at 5pm and I need to buy milk and eggs on the way home. " +
+                "Also, book a dentist appointment for next Tuesday, and email Sarah the Budget Numbers by Friday."
+        )
+        assertEquals(
+            listOf("Call Mom", "Buy milk and eggs on the way home", "Book a dentist appointment", "Email Sarah the Budget Numbers"),
+            tasks.map { it.title },
+        )
+        assertEquals(LocalDateTime.of(2026, 10, 17, 17, 0), tasks[0].due!!.at())
+        assertEquals(LocalDateTime.of(2026, 10, 20, 0, 0), tasks[2].due!!.at())
+        assertEquals(LocalDateTime.of(2026, 10, 23, 0, 0), tasks[3].due!!.at())
+    }
+
+    @Test
+    fun `comma and noun does not split`() {
+        assertEquals(listOf("Buy apples, and pears"), extract("Buy apples, and pears").map { it.title })
+    }
+
+    @Test
     fun `empty transcript`() {
         assertTrue(extract("   ").isEmpty())
     }

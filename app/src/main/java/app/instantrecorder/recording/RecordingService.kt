@@ -16,6 +16,7 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.os.SystemClock
 import android.os.VibrationEffect
@@ -82,6 +83,12 @@ class RecordingService : LifecycleService() {
     private var transcriber: Transcriber? = null
     private var focusRequest: AudioFocusRequest? = null
     private val handler = Handler(Looper.getMainLooper())
+    /** Keeps the CPU running while the screen is off, so transcription doesn't stall until the next wake-up. */
+    private val wakeLock by lazy {
+        getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "InstantRecorder:recording")
+            .apply { setReferenceCounted(false) }
+    }
     private val autoStop = Runnable {
         stopRecording(keep = true)
         stopIfIdle()
@@ -105,6 +112,7 @@ class RecordingService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
         // Every startForegroundService() must be answered with startForeground(), whatever the action.
         if (!enterForeground()) return START_NOT_STICKY
+        wakeLock.acquire(MAX_RECORDING_MS + WAKE_LOCK_SLACK_MS)
         when (intent?.action) {
             ACTION_START -> startRecording()
             ACTION_STOP -> stopRecording(keep = true)
@@ -122,6 +130,7 @@ class RecordingService : LifecycleService() {
         // Never free the model under a running whisper_full(); ask it to stop instead.
         if (RecorderState.transcribing.value == null) transcriber?.close() else WhisperLib.nativeAbort()
         transcriber = null
+        if (wakeLock.isHeld) wakeLock.release()
         super.onDestroy()
     }
 
@@ -253,6 +262,7 @@ class RecordingService : LifecycleService() {
 
     private fun stopIfIdle() {
         if (capture == null && pending.get() == 0) {
+            if (wakeLock.isHeld) wakeLock.release()
             ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -364,6 +374,7 @@ class RecordingService : LifecycleService() {
         private const val TAG = "RecordingService"
         private const val MAX_RECORDING_MS = 30L * 60 * 1000
         private const val MIN_RECORDING_MS = 600L
+        private const val WAKE_LOCK_SLACK_MS = 10L * 60 * 1000
 
         const val ACTION_START = "app.instantrecorder.action.START"
         const val ACTION_STOP = "app.instantrecorder.action.STOP"

@@ -10,8 +10,11 @@ object WhisperLib {
     external fun nativeInit(modelPath: String): Long
     external fun nativeFree(ctx: Long)
 
-    /** Blocking. [audio] is 16 kHz mono PCM in [-1, 1]. Returns UTF-8 text or null on failure. */
-    external fun nativeTranscribe(ctx: Long, audio: FloatArray, threads: Int, language: String): ByteArray?
+    /**
+     * Blocking. [audio] is 16 kHz mono PCM in [-1, 1]. [audioCtx] limits the encoder window
+     * (50 per second of audio, 0 = the full 30 s). Returns UTF-8 text or null on failure.
+     */
+    external fun nativeTranscribe(ctx: Long, audio: FloatArray, threads: Int, audioCtx: Int, language: String): ByteArray?
 
     /** Progress (0..100) of the transcription currently running. */
     external fun nativeProgress(): Int

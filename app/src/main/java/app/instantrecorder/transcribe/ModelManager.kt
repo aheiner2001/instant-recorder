@@ -109,8 +109,9 @@ class ModelManager(context: Context, private val scope: CoroutineScope, private 
         _installed.value = scanInstalled()
     }
 
+    /** Only complete files count: a truncated model would fail to load (or worse) at transcription time. */
     private fun scanInstalled(): Set<WhisperModel> =
-        WhisperModel.entries.filter { file(it).isFile && file(it).length() > 0 }.toSet()
+        WhisperModel.entries.filter { file(it).length() == it.sizeBytes }.toSet()
 
     private companion object {
         const val TAG = "ModelManager"
