@@ -23,6 +23,7 @@ object Notifications {
     private const val CHANNEL_REMINDERS = "reminders"
 
     const val ID_SERVICE = 1
+    private const val RECORDING_RED = 0xFFD32F2F.toInt()
     private const val ID_PROBLEM = 2
     private fun resultId(recordingId: Long) = 10_000 + recordingId.toInt()
     private fun reminderId(taskId: Long) = 1_000_000 + taskId.toInt()
@@ -57,6 +58,10 @@ object Notifications {
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            // Android 16+ "Live Update": a red status-bar chip with the running timer, visible in every
+            // app and on the lock screen, so a forgotten recording is hard to miss.
+            .setRequestPromotedOngoing(true)
+            .setColor(RECORDING_RED)
             .setContentIntent(openApp(context))
             .addAction(R.drawable.ic_stop, "Stop", serviceAction(context, RecordingService.ACTION_STOP))
             .addAction(R.drawable.ic_stop, "Discard", serviceAction(context, RecordingService.ACTION_CANCEL))

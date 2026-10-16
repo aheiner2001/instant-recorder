@@ -89,6 +89,7 @@ class RecordingService : LifecycleService() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "InstantRecorder:recording")
             .apply { setReferenceCounted(false) }
     }
+    /** Maximum length reached, or the silence detector fired. */
     private val autoStop = Runnable {
         stopRecording(keep = true)
         stopIfIdle()
@@ -160,8 +161,9 @@ class RecordingService : LifecycleService() {
         if (capture != null) return
         val startedAt = System.currentTimeMillis()
         val dir = File(filesDir, "recordings").apply { mkdirs() }
+        val settings = app.settings.value
         val c = try {
-            Capture(File(dir, "rec_$startedAt.wav"), startedAt)
+            Capture(File(dir, "rec_$startedAt.wav"), startedAt, settings.silenceStopSec * 1000L) { handler.post(autoStop) }
         } catch (e: Exception) {
             Log.e(TAG, "Couldn't open the microphone", e)
             Notifications.showProblem(this, "Microphone unavailable", e.message ?: "Another app may be using it.")
@@ -170,10 +172,9 @@ class RecordingService : LifecycleService() {
         capture = c
         RecorderState.status.value = RecorderState.Status.Recording(startedAt)
         refreshNotification()
-        val settings = app.settings.value
         if (settings.pauseMedia) requestAudioFocus()
         if (settings.haptics) vibrate(VibrationEffect.createOneShot(70, VibrationEffect.DEFAULT_AMPLITUDE))
-        handler.postDelayed(autoStop, MAX_RECORDING_MS)
+        handler.postDelayed(autoStop, settings.maxRecordingMin * 60_000L)
     }
 
     private fun stopRecording(keep: Boolean) {
@@ -187,7 +188,8 @@ class RecordingService : LifecycleService() {
         if (app.settings.value.haptics) vibrate(VibrationEffect.createWaveform(longArrayOf(0, 50, 90, 50), -1))
 
         val durationMs = WavFile.durationMs(c.samples)
-        if (!keep || durationMs < MIN_RECORDING_MS) {
+        // Stopped by silence without a word said: an accidental trigger, not a note.
+        if (!keep || durationMs < MIN_RECORDING_MS || c.nothingSaid) {
             c.file.delete()
             return
         }
@@ -303,14 +305,23 @@ class RecordingService : LifecycleService() {
         getSystemService(VibratorManager::class.java)?.defaultVibrator?.vibrate(effect)
     }
 
-    /** Reads the microphone on its own thread and streams it into a WAV file. */
-    private class Capture(val file: File, val startedAt: Long) {
+    /**
+     * Reads the microphone on its own thread and streams it into a WAV file. With [silenceMs] > 0 it
+     * calls [onSilence] (from the capture thread) once that much quiet follows the speech.
+     */
+    private class Capture(val file: File, val startedAt: Long, silenceMs: Long, private val onSilence: () -> Unit) {
         @Volatile private var running = true
         @Volatile var samples = 0L
             private set
         private val record: AudioRecord
         private val writer: WavFile.Writer
         private val worker: Thread
+        private val silence = if (silenceMs > 0) SilenceDetector(silenceMs, FRAME_MS) else null
+        @Volatile private var stoppedBySilence = false
+        private var lastSpeechAt = 0L // in samples
+
+        /** The silence detector ended this recording and never heard speech. */
+        val nothingSaid: Boolean get() = stoppedBySilence && silence?.heardSpeech == false
 
         init {
             val minBuffer = AudioRecord.getMinBufferSize(
@@ -336,7 +347,7 @@ class RecordingService : LifecycleService() {
 
         private fun loop() {
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-            val buffer = ShortArray(WavFile.SAMPLE_RATE / 10) // 100 ms
+            val buffer = ShortArray((WavFile.SAMPLE_RATE * FRAME_MS / 1000).toInt())
             try {
                 while (running) {
                     val n = record.read(buffer, 0, buffer.size)
@@ -347,9 +358,23 @@ class RecordingService : LifecycleService() {
                     if (n == 0) continue
                     writer.write(buffer, n)
                     samples += n
-                    RecorderState.level.value = level(buffer, n)
+                    val db = levelDb(buffer, n)
+                    RecorderState.level.value = ((db + 60) / 60).toFloat().coerceIn(0f, 1f)
+                    if (silence != null && !stoppedBySilence) {
+                        if (silence.isSpeech(db)) lastSpeechAt = samples
+                        if (silence.shouldStop) {
+                            stoppedBySilence = true
+                            onSilence()
+                        }
+                    }
                 }
             } finally {
+                // Drop the silent tail (keeping a second): it only slows whisper down and invites made-up text.
+                if (stoppedBySilence && silence?.heardSpeech == true) {
+                    val keep = minOf(samples, lastSpeechAt + WavFile.SAMPLE_RATE)
+                    writer.truncate(keep)
+                    samples = keep
+                }
                 writer.close()
             }
         }
@@ -361,18 +386,19 @@ class RecordingService : LifecycleService() {
             record.release()
         }
 
-        private fun level(buffer: ShortArray, n: Int): Float {
+        private fun levelDb(buffer: ShortArray, n: Int): Double {
             var sum = 0.0
             for (i in 0 until n) sum += buffer[i].toDouble() * buffer[i]
             val rms = sqrt(sum / n) / Short.MAX_VALUE
-            val db = 20 * log10(rms.coerceAtLeast(1e-6))
-            return ((db + 60) / 60).toFloat().coerceIn(0f, 1f)
+            return 20 * log10(rms.coerceAtLeast(1e-6))
         }
     }
 
     companion object {
         private const val TAG = "RecordingService"
+        /** Hard ceiling for the wake lock, above the longest "maximum length" setting. */
         private const val MAX_RECORDING_MS = 30L * 60 * 1000
+        private const val FRAME_MS = 100L
         private const val MIN_RECORDING_MS = 600L
         private const val WAKE_LOCK_SLACK_MS = 10L * 60 * 1000
 

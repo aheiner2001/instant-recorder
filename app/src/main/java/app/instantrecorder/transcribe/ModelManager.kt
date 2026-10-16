@@ -17,10 +17,19 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-enum class WhisperModel(val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String) {
-    TINY_EN("tiny.en", "Tiny", "ggml-tiny.en.bin", 77_704_715, "Fastest, least accurate"),
-    BASE_EN("base.en", "Base", "ggml-base.en.bin", 147_964_211, "Recommended balance of speed and accuracy"),
-    SMALL_EN_Q5("small.en-q5_1", "Small (quantized)", "ggml-small.en-q5_1.bin", 190_098_681, "Most accurate, roughly 3x slower than Base");
+/**
+ * [shrinkWindow]: whether short clips may use a smaller encoder window (see Transcriber.encoderWindow).
+ * Measured on the user's recordings: free accuracy-wise for Base, but it broke 2 of 5 clips for Small.
+ */
+enum class WhisperModel(
+    val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String, val shrinkWindow: Boolean,
+) {
+    TINY_EN("tiny.en", "Tiny", "ggml-tiny.en.bin", 77_704_715, "Fastest, least accurate", shrinkWindow = true),
+    BASE_EN("base.en", "Base", "ggml-base.en.bin", 147_964_211, "Fast; fine for clear speech", shrinkWindow = true),
+    SMALL_EN_Q5(
+        "small.en-q5_1", "Small (quantized)", "ggml-small.en-q5_1.bin", 190_098_681,
+        "Most accurate with names and uncommon words; a few seconds per note", shrinkWindow = false,
+    );
 
     val url: String get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName"
 

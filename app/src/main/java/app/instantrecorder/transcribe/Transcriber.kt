@@ -17,7 +17,7 @@ class Transcriber(val model: WhisperModel, private val modelFile: File) : Closea
 
     /**
      * Blocking; call off the main thread. Returns cleaned text, empty if no speech was found.
-     * [audioCtx] overrides the encoder window; by default it's sized to the clip.
+     * [audioCtx] overrides the encoder window; by default it's sized to the clip when the model allows it.
      */
     fun transcribe(wav: File, audioCtx: Int? = null): String {
         val audio = WavFile.readAsFloat(wav)
@@ -37,7 +37,7 @@ class Transcriber(val model: WhisperModel, private val modelFile: File) : Closea
             if (ctx == 0L) throw IOException("Couldn't load speech model ${model.label}")
         }
         val inferStart = SystemClock.elapsedRealtime()
-        val window = audioCtx ?: encoderWindow(audio.size)
+        val window = audioCtx ?: if (model.shrinkWindow) encoderWindow(audio.size) else 0
         val threads = threadCount()
         val bytes = WhisperLib.nativeTranscribe(ctx, audio, threads, window, "en")
             ?: throw IOException("Transcription failed")

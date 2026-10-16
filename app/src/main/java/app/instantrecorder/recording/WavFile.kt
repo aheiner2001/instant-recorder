@@ -32,6 +32,14 @@ object WavFile {
             dataBytes += count * 2
         }
 
+        /** Drops everything after [sampleCount] samples (used to trim a silent tail). */
+        fun truncate(sampleCount: Long) {
+            val bytes = sampleCount * 2
+            if (bytes >= dataBytes) return
+            dataBytes = bytes
+            raf.setLength(HEADER_SIZE + bytes)
+        }
+
         override fun close() {
             raf.seek(0)
             raf.write(header(dataBytes))

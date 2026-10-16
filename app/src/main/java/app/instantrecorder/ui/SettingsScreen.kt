@@ -1,8 +1,11 @@
 package app.instantrecorder.ui
 
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
 import android.widget.Toast
 import androidx.compose.foundation.layout.Column
@@ -60,6 +63,9 @@ fun SettingsScreen(vm: MainViewModel) {
     val tick = rememberResumeTick()
     val triggerOn = remember(tick) { VolumeKeyTriggerService.isEnabled(context) }
     val exactAlarms = remember(tick) { context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms() }
+    val promotedAllowed = remember(tick) {
+        Build.VERSION.SDK_INT < 36 || context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()
+    }
 
     LaunchedEffect(Unit) {
         vm.modelErrors.collect { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
@@ -157,6 +163,41 @@ fun SettingsScreen(vm: MainViewModel) {
                 trailingContent = { Switch(settings.pauseMedia, { on -> vm.updateSettings { it.copy(pauseMedia = on) } }) },
             )
 
+            SectionHeader("Recording")
+            ChoiceRow(
+                title = "Stop after silence",
+                options = listOf(0 to "Off", 5 to "5 s", 8 to "8 s", 15 to "15 s"),
+                selected = settings.silenceStopSec,
+                onSelect = { v -> vm.updateSettings { it.copy(silenceStopSec = v) } },
+            )
+            ChoiceRow(
+                title = "Maximum length",
+                options = listOf(2 to "2 min", 5 to "5 min", 10 to "10 min", 30 to "30 min"),
+                selected = settings.maxRecordingMin,
+                onSelect = { v -> vm.updateSettings { it.copy(maxRecordingMin = v) } },
+            )
+            if (Build.VERSION.SDK_INT >= 36) {
+                ListItem(
+                    headlineContent = { Text("Recording timer in the status bar") },
+                    supportingContent = {
+                        Text(
+                            if (promotedAllowed) "On: a red timer chip shows while recording, in every app and on the lock screen."
+                            else "Off: turn on \"Live updates\" for Instant Recorder to see the timer chip."
+                        )
+                    },
+                    trailingContent = {
+                        if (!promotedAllowed) {
+                            Button(onClick = {
+                                context.launchSafely(
+                                    Intent(Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS)
+                                        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                )
+                            }) { Text("Turn on") }
+                        }
+                    },
+                )
+            }
+
             SectionHeader("Double-tap the back (Quick Tap)")
             Text(
                 "Settings → System → Gestures → Quick Tap → Open app → choose \"Quick Record\". " +
@@ -216,6 +257,23 @@ fun SettingsScreen(vm: MainViewModel) {
                     }
                 },
             )
+        }
+    }
+}
+
+/** A labelled row of mutually exclusive choices. */
+@Composable
+private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            options.forEachIndexed { i, (value, label) ->
+                SegmentedButton(
+                    selected = selected == value,
+                    onClick = { onSelect(value) },
+                    shape = SegmentedButtonDefaults.itemShape(i, options.size),
+                ) { Text(label) }
+            }
         }
     }
 }

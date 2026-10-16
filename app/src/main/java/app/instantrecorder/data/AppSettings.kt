@@ -30,6 +30,9 @@ data class Settings(
     val holdMs: Int = 500,
     val haptics: Boolean = true,
     val pauseMedia: Boolean = true,
+    /** Stop by itself after this much silence; 0 = never. */
+    val silenceStopSec: Int = 8,
+    val maxRecordingMin: Int = 5,
     val modelId: String = "base.en",
 )
 
@@ -57,6 +60,8 @@ class AppSettings(context: Context) {
             putInt("holdMs", next.holdMs)
             putBoolean("haptics", next.haptics)
             putBoolean("pauseMedia", next.pauseMedia)
+            putInt("silenceStopSec", next.silenceStopSec)
+            putInt("maxRecordingMin", next.maxRecordingMin)
             putString("modelId", next.modelId)
         }
         _state.value = next
@@ -72,6 +77,8 @@ class AppSettings(context: Context) {
             holdMs = prefs.getInt("holdMs", d.holdMs),
             haptics = prefs.getBoolean("haptics", d.haptics),
             pauseMedia = prefs.getBoolean("pauseMedia", d.pauseMedia),
+            silenceStopSec = prefs.getInt("silenceStopSec", d.silenceStopSec),
+            maxRecordingMin = prefs.getInt("maxRecordingMin", d.maxRecordingMin),
             modelId = prefs.getString("modelId", d.modelId) ?: d.modelId,
         )
     }
