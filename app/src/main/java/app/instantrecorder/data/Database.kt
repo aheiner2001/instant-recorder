@@ -75,6 +75,9 @@ interface RecordingDao {
 
     @Query("SELECT id FROM recordings WHERE status = :status ORDER BY createdAt")
     suspend fun idsWithStatus(status: RecordingStatus): List<Long>
+
+    @Query("SELECT id FROM recordings")
+    suspend fun allIds(): List<Long>
 }
 
 @Dao

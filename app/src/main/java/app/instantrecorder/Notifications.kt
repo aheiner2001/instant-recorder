@@ -80,6 +80,7 @@ object Notifications {
             .build()
 
     fun showResult(context: Context, recording: Recording, suggestions: List<TaskSuggestion>) {
+        if (DebugKnobs.quietResults) return
         val transcript = recording.transcript.orEmpty()
         val actionable = suggestions.filter { it.actionable }
         val title = when (actionable.size) {

@@ -20,15 +20,21 @@ import java.net.URL
 /**
  * [shrinkWindow]: whether short clips may use a smaller encoder window (see Transcriber.encoderWindow).
  * Measured on the user's recordings: free accuracy-wise for Base, but it broke 2 of 5 clips for Small.
+ *
+ * [threads]: best whisper thread count, measured on the Pixel 10 Pro Fold transcribing in the background
+ * (5.6 s clip). Base with its short window: 3 threads 0.8 s vs 5 threads 1.0 s locked and 2.0 s with the
+ * screen on (its threads mostly wait on each other). Small does far more work per step: 5 threads 5.4 s,
+ * 3 threads 7.6 s, 6 threads 6.1 s.
  */
 enum class WhisperModel(
-    val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String, val shrinkWindow: Boolean,
+    val id: String, val label: String, val fileName: String, val sizeBytes: Long, val note: String,
+    val shrinkWindow: Boolean, val threads: Int,
 ) {
-    TINY_EN("tiny.en", "Tiny", "ggml-tiny.en.bin", 77_704_715, "Fastest, least accurate", shrinkWindow = true),
-    BASE_EN("base.en", "Base", "ggml-base.en.bin", 147_964_211, "Fast; fine for clear speech", shrinkWindow = true),
+    TINY_EN("tiny.en", "Tiny", "ggml-tiny.en.bin", 77_704_715, "Fastest, least accurate", shrinkWindow = true, threads = 3),
+    BASE_EN("base.en", "Base", "ggml-base.en.bin", 147_964_211, "Fast; fine for clear speech", shrinkWindow = true, threads = 3),
     SMALL_EN_Q5(
         "small.en-q5_1", "Small (quantized)", "ggml-small.en-q5_1.bin", 190_098_681,
-        "Most accurate with names and uncommon words; a few seconds per note", shrinkWindow = false,
+        "Most accurate with names and uncommon words; a few seconds per note", shrinkWindow = false, threads = 5,
     );
 
     val url: String get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName"

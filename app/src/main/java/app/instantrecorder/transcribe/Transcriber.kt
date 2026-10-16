@@ -2,6 +2,7 @@ package app.instantrecorder.transcribe
 
 import android.os.SystemClock
 import android.util.Log
+import app.instantrecorder.DebugKnobs
 import app.instantrecorder.recording.WavFile
 import java.io.Closeable
 import java.io.File
@@ -38,14 +39,14 @@ class Transcriber(val model: WhisperModel, private val modelFile: File) : Closea
         }
         val inferStart = SystemClock.elapsedRealtime()
         val window = audioCtx ?: if (model.shrinkWindow) encoderWindow(audio.size) else 0
-        val threads = threadCount()
+        val threads = threadCount(model)
         val bytes = WhisperLib.nativeTranscribe(ctx, audio, threads, window, "en")
             ?: throw IOException("Transcription failed")
         val done = SystemClock.elapsedRealtime()
         Log.i(
             TAG,
             "${model.id}: ${WavFile.durationMs(audio.size.toLong())} ms audio, load ${inferStart - loadStart} ms, " +
-                "inference ${done - inferStart} ms, audioCtx $window, $threads threads",
+                "inference ${done - inferStart} ms, audioCtx $window, $threads threads on ${allowedCores()} cores",
         )
         return clean(String(bytes, Charsets.UTF_8))
     }
@@ -77,18 +78,20 @@ class Transcriber(val model: WhisperModel, private val modelFile: File) : Closea
         }
 
         /**
-         * Threads for the cores this process may use *right now*. Android confines background work to a
-         * subset (on the Pixel 10 Pro Fold: all 8 on screen, 7 for a foreground service, 3 in the
-         * background), and whisper's threads spin-wait on each other, so oversubscribing collapses
-         * throughput. Leave headroom on big sets so the slow efficiency cores aren't the bottleneck.
+         * The model's measured best thread count ([WhisperModel.threads]), capped by the cores this process
+         * may use *right now*: Android confines background work to a subset (on the Pixel 10 Pro Fold: all
+         * 8 on screen, 7 for a foreground service, 3 in the background), and whisper's threads spin-wait on
+         * each other, so oversubscribing collapses throughput.
          */
-        fun threadCount(): Int {
+        fun threadCount(model: WhisperModel): Int {
+            DebugKnobs.threads?.let { return it }
             val cores = allowedCores() ?: Runtime.getRuntime().availableProcessors()
-            return when {
-                cores >= 6 -> (cores - 2).coerceAtMost(6)
+            val cap = when {
+                cores >= 6 -> cores - 2
                 cores >= 2 -> cores - 1
                 else -> 1
             }
+            return model.threads.coerceAtMost(cap)
         }
 
         /** Counts "Cpus_allowed_list" in /proc/self/status, e.g. "0-2,4" → 4. */

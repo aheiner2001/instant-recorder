@@ -21,19 +21,27 @@ import java.io.File
  *   adb shell am start -n app.instantrecorder/.ui.MainActivity     # foreground, so the service may start
  *   adb shell am broadcast -n app.instantrecorder/.DebugImportReceiver --es file import.wav
  *
+ * Experiment knobs on import: --ei threads N (force thread count, 0 = automatic), --ez quiet true
+ * (no result notification). Purge every imported recording: --ez purge true
+ *
  * Benchmark encoder window sizes on existing files (logged under "Bench"):
  *
  *   adb shell am broadcast -n app.instantrecorder/.DebugImportReceiver --es bench recordings/a.wav,recordings/b.wav
  */
 class DebugImportReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.hasExtra("threads")) DebugKnobs.threads = intent.getIntExtra("threads", 0).takeIf { it > 0 }
+        if (intent.hasExtra("quiet")) DebugKnobs.quietResults = intent.getBooleanExtra("quiet", false)
+        if (intent.getBooleanExtra("purge", false)) purge(context)
+        // --es setModel <id>: switch the selected speech model (changes the user's setting; set it back after).
+        intent.getStringExtra("setModel")?.let { id -> context.app.settings.update { it.copy(modelId = id) } }
         intent.getStringExtra("bench")?.let { bench(context, it.split(','), intent.getStringExtra("model")) }
         val name = intent.getStringExtra("file") ?: return
         val pending = goAsync()
         context.app.appScope.launch {
             try {
                 val now = System.currentTimeMillis()
-                val dest = File(File(context.filesDir, "recordings").apply { mkdirs() }, "rec_$now.wav")
+                val dest = File(File(context.filesDir, "recordings").apply { mkdirs() }, "$IMPORT_PREFIX$now.wav")
                 File(context.filesDir, name).copyTo(dest, overwrite = true)
                 val samples = WavFile.readAsFloat(dest).size.toLong()
                 val id = context.app.db.recordings().insert(
@@ -78,5 +86,29 @@ class DebugImportReceiver : BroadcastReceiver() {
                 pending.finish()
             }
         }
+    }
+
+    /** Deletes every recording this receiver imported (files, rows and notifications). */
+    private fun purge(context: Context) {
+        val pending = goAsync()
+        context.app.appScope.launch {
+            try {
+                val dao = context.app.db.recordings()
+                for (id in dao.allIds()) {
+                    val r = dao.get(id) ?: continue
+                    if (!File(r.filePath).name.startsWith(IMPORT_PREFIX)) continue
+                    File(r.filePath).delete()
+                    dao.delete(r)
+                    Notifications.cancelResult(context, r.id)
+                }
+                Log.i("DebugImport", "Purged imported recordings")
+            } finally {
+                pending.finish()
+            }
+        }
+    }
+
+    private companion object {
+        const val IMPORT_PREFIX = "dbg_"
     }
 }
