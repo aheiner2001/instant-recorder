@@ -11,6 +11,7 @@ import app.instantrecorder.data.Settings
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
+import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskStore
 import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.transcribe.WhisperLib
@@ -114,6 +115,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTaskDone(task: TaskItem, done: Boolean) {
         viewModelScope.launch { TaskStore.setDone(context, task, done) }
+    }
+
+    fun editTask(taskId: Long, title: String, notes: String?, due: Due?) {
+        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due) }
     }
 
     fun deleteTask(task: TaskItem) {

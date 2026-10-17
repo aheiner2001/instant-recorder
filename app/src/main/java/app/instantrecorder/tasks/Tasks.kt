@@ -40,6 +40,19 @@ object TaskStore {
         Notifications.cancelReminder(context, task.id)
     }
 
+    /**
+     * Applies edits to the task as it is in the database now (a reminder's "Done" may have changed it
+     * while the editor was open), then re-arms or cancels its reminder for the new due date.
+     */
+    suspend fun edit(context: Context, taskId: Long, title: String, notes: String?, due: Due?) {
+        val dao = context.app.db.tasks()
+        val current = dao.get(taskId) ?: return
+        val updated = current.copy(title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false)
+        dao.update(updated)
+        Reminders.schedule(context, updated)
+        Notifications.cancelReminder(context, taskId)
+    }
+
     suspend fun delete(context: Context, task: TaskItem) {
         context.app.db.tasks().delete(task)
         Reminders.cancel(context, task.id)

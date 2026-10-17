@@ -40,6 +40,7 @@ import kotlin.math.roundToInt
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -119,6 +120,8 @@ fun HomeScreen(vm: MainViewModel) {
     val tasks by vm.tasks.collectAsStateWithLifecycle()
     val transcribing by vm.transcribing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    // An id, not the task, so the editor survives folding/unfolding and always shows the current row.
+    var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
     val snackbar = remember { SnackbarHostState() }
@@ -152,6 +155,26 @@ fun HomeScreen(vm: MainViewModel) {
             afterMicGranted = action
             recordPermission.launch(Manifest.permission.RECORD_AUDIO)
         }
+    }
+
+    tasks.firstOrNull { it.id == editingTaskId }?.let { task ->
+        TaskEditorSheet(
+            task = task,
+            canOpenRecording = recordings.any { it.id == task.recordingId },
+            onDismiss = { editingTaskId = null },
+            onSave = { title, notes, due ->
+                vm.editTask(task.id, title, notes, due)
+                editingTaskId = null
+            },
+            onDelete = {
+                vm.deleteTask(task)
+                editingTaskId = null
+            },
+            onOpenRecording = {
+                editingTaskId = null
+                task.recordingId?.let { vm.open(Route.Review(it)) }
+            },
+        )
     }
 
     Scaffold(
@@ -208,6 +231,7 @@ fun HomeScreen(vm: MainViewModel) {
                 items(tasks, key = { it.id }) { t ->
                     TaskRow(
                         task = t,
+                        onClick = { editingTaskId = t.id },
                         onDone = { vm.setTaskDone(t, it) },
                         onCalendar = {
                             context.launchSafely(
@@ -388,10 +412,11 @@ private fun RecordingRow(recording: Recording, progress: Int?, onClick: () -> Un
 }
 
 @Composable
-private fun TaskRow(task: TaskItem, onDone: (Boolean) -> Unit, onCalendar: () -> Unit, onDelete: () -> Unit) {
+private fun TaskRow(task: TaskItem, onClick: () -> Unit, onDone: (Boolean) -> Unit, onCalendar: () -> Unit, onDelete: () -> Unit) {
     val due = task.dueAt?.let { Due(it, task.dueHasTime) }
     val overdue = !task.done && task.dueAt != null && task.dueHasTime && task.dueAt < System.currentTimeMillis()
     ListItem(
+        modifier = Modifier.clickable(onClickLabel = "Edit task", onClick = onClick),
         leadingContent = { Checkbox(checked = task.done, onCheckedChange = onDone) },
         headlineContent = {
             Text(task.title, textDecoration = if (task.done) TextDecoration.LineThrough else null)

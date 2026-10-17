@@ -22,7 +22,7 @@ Built and tested on a Pixel 10 Pro Fold (Android 17). It should work on other An
 
      If **Allow restricted settings** never appears, check that Advanced Protection is off (Settings → Security & privacy → Advanced Protection). As a last resort, an app installed over USB with `adb install` isn't restricted.
 
-**Updates:** download the APK again from the link above and install it over the old one. To get updates automatically, add this repository to [Obtainium](https://github.com/ImranR98/Obtainium).
+**Updates:** download the APK again from the link above and install it over the old one.
 
 **Google's developer verification:** Google now requires Android apps to come from identity-verified developers, even when installed outside the Play Store. It has been enforced in Brazil, Indonesia, Singapore and Thailand since September 30, 2026, and is planned worldwide from 2027. If your phone refuses to install the app, that's why. Installing over a USB cable with `adb install instant-recorder.apk` still works.
 
@@ -34,7 +34,7 @@ Built and tested on a Pixel 10 Pro Fold (Android 17). It should work on other An
 | Stop | Press either volume button, tap **Stop** in the notification, or just stop talking (it stops after 8 s of silence). |
 | Start without the buttons | Double-tap the back of the phone (Pixel: Settings → System → Gestures → Quick Tap → Open app → **Quick Record**), the Quick Settings tile, or the mic button in the app. |
 
-While recording, a red timer chip shows in the status bar. A few seconds after you stop, a notification lists the tasks it found: tap **Save all**, or open it to edit the tasks, add them to your calendar, or share them to any task app.
+While recording, a red timer chip shows in the status bar. A few seconds after you stop, a notification lists the tasks it found: tap **Save all**, or open it to edit the tasks, add them to your calendar, or share them to any task app. Saved tasks are in the **Tasks** tab; tap one to change its title, date or notes.
 
 Single volume presses work exactly as before, including holding a button to change the volume quickly. Everything is adjustable in Settings: the gesture, walkie-talkie mode, silence timeout, maximum length and the speech model.
 
