@@ -6,7 +6,9 @@ name: Build
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "LICENSE"] # documentation-only pushes don't need a new release
   pull_request:
+    paths-ignore: ["**.md", "LICENSE"]
   workflow_dispatch:
 
 permissions:

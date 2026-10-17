@@ -15,7 +15,12 @@ Built and tested on a Pixel 10 Pro Fold (Android 17). It should work on other An
 2. Open **Instant Recorder** and follow the "Finish setting up" card:
    - Allow the microphone and notifications.
    - Choose a speech model: **Fast** (148 MB, results in about a second) or **Accurate** (190 MB, better with names and unusual words, a few seconds per note). You can switch later in Settings.
-   - Turn on the volume-button trigger. This is an Accessibility service. Because the app wasn't installed from the Play Store, Android first shows **"Restricted setting"**. To allow it, go to **Settings → Apps → Instant Recorder → ⋮ (top right) → Allow restricted settings**, then switch the service on under **Settings → Accessibility → Instant Recorder volume-button trigger**.
+   - Turn on the volume-button trigger. This is an Accessibility service, and because the app didn't come from the Play Store, Android blocks it at first with **"App was denied access"** (on older versions, "Restricted setting"). The unlock option only appears after Android has blocked one attempt, so follow this order:
+     1. **Settings → Accessibility → Instant Recorder volume-button trigger** → tap the switch, then dismiss the "denied access" message.
+     2. Long-press the Instant Recorder icon → **App info** → **⋮** (top right) → **Allow restricted settings**, and confirm with your PIN.
+     3. Go back to **Settings → Accessibility → Instant Recorder volume-button trigger** and switch it on.
+
+     If **Allow restricted settings** never appears, check that Advanced Protection is off (Settings → Security & privacy → Advanced Protection). As a last resort, an app installed over USB with `adb install` isn't restricted.
 
 **Updates:** download the APK again from the link above and install it over the old one. To get updates automatically, add this repository to [Obtainium](https://github.com/ImranR98/Obtainium).
 
