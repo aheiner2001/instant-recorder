@@ -22,6 +22,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -85,6 +87,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -130,19 +133,20 @@ fun HomeScreen(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
     val snackbar = remember { SnackbarHostState() }
-    val scope = rememberCoroutineScope()
-    val deleteWithUndo = { r: Recording ->
-        vm.hideForDeletion(r)
-        scope.launch {
-            // A newer swipe takes over the snackbar, which commits the previous deletion.
-            snackbar.currentSnackbarData?.dismiss()
-            var undo = false
-            try {
-                undo = snackbar.showSnackbar("Recording deleted", "Undo", duration = SnackbarDuration.Long) ==
-                    SnackbarResult.ActionPerformed
-            } finally {
-                // Also reached when Home leaves composition (navigation, rotation, finishing) with the snackbar up.
-                if (undo) vm.undoDeletion(r) else vm.commitDeletion(r)
+    // Shows "… deleted · Undo" for every delete in the app (swipes here, Delete in the editor or review screen).
+    LaunchedEffect(Unit) {
+        vm.deletions.collect { item ->
+            launch {
+                // A newer delete takes over the snackbar, which commits the previous one.
+                snackbar.currentSnackbarData?.dismiss()
+                var undo = false
+                try {
+                    undo = snackbar.showSnackbar(item.message, "Undo", duration = SnackbarDuration.Long) ==
+                        SnackbarResult.ActionPerformed
+                } finally {
+                    // Also reached when Home leaves composition (navigation, folding, finishing) with the snackbar up.
+                    if (undo) vm.undoDeletion(item) else vm.commitDeletion(item)
+                }
             }
         }
     }
@@ -173,7 +177,7 @@ fun HomeScreen(vm: MainViewModel) {
                 editingTaskId = null
             },
             onDelete = {
-                vm.deleteTask(task)
+                vm.delete(Deletion.OfTask(task))
                 editingTaskId = null
             },
             onOpenRecording = {
@@ -226,7 +230,7 @@ fun HomeScreen(vm: MainViewModel) {
                     SwipeToDelete(
                         // RecordingService is working on it.
                         enabled = r.status != RecordingStatus.TRANSCRIBING,
-                        onDelete = { deleteWithUndo(r) },
+                        onDelete = { vm.delete(Deletion.OfRecording(r)) },
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     ) {
                         RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
@@ -255,18 +259,19 @@ fun HomeScreen(vm: MainViewModel) {
                 if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds.") }
                 else if (shown.isEmpty()) item { EmptyHint("No tasks in this category.") }
                 items(shown, key = { it.id }) { t ->
-                    TaskRow(
-                        task = t,
-                        category = categories.firstOrNull { it.id == t.categoryId },
-                        onClick = { editingTaskId = t.id },
-                        onDone = { vm.setTaskDone(t, it) },
-                        onCalendar = {
-                            context.launchSafely(
-                                TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
-                            )
-                        },
-                        onDelete = { vm.deleteTask(t) },
-                    )
+                    SwipeToDelete(enabled = true, onDelete = { vm.delete(Deletion.OfTask(t)) }, shape = RectangleShape) {
+                        TaskRow(
+                            task = t,
+                            category = categories.firstOrNull { it.id == t.categoryId },
+                            onClick = { editingTaskId = t.id },
+                            onDone = { vm.setTaskDone(t, it) },
+                            onCalendar = {
+                                context.launchSafely(
+                                    TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
+                                )
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -365,12 +370,13 @@ private val timestampFormat = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.
 fun formatTimestamp(millis: Long): String =
     Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).format(timestampFormat)
 
-/** Swipe end-to-start to delete, over an error-colored background shaped like the card. */
+/** Swipe end-to-start to delete (undoable), over an error-colored background shaped like the row. */
 @Composable
 private fun SwipeToDelete(
     enabled: Boolean,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    shape: Shape = CardDefaults.shape,
     content: @Composable () -> Unit,
 ) {
     // Not rememberSwipeToDismissBoxState(): it's saveable, and the list keeps saved state per key, so after
@@ -388,7 +394,7 @@ private fun SwipeToDelete(
         backgroundContent = {
             if (state.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
                 Box(
-                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error, CardDefaults.shape).padding(horizontal = 24.dp),
+                    Modifier.fillMaxSize().background(MaterialTheme.colorScheme.error, shape).padding(horizontal = 24.dp),
                     contentAlignment = Alignment.CenterEnd,
                 ) {
                     Icon(Icons.Filled.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.onError)
@@ -445,7 +451,6 @@ private fun TaskRow(
     onClick: () -> Unit,
     onDone: (Boolean) -> Unit,
     onCalendar: () -> Unit,
-    onDelete: () -> Unit,
 ) {
     val due = task.dueAt?.let { Due(it, task.dueHasTime) }
     val overdue = !task.done && task.dueAt != null && task.dueHasTime && task.dueAt < System.currentTimeMillis()
@@ -466,10 +471,7 @@ private fun TaskRow(
             }
         },
         trailingContent = {
-            Row {
-                IconButton(onClick = onCalendar) { Icon(Icons.Filled.Event, "Add to calendar") }
-                IconButton(onClick = onDelete) { Icon(Icons.Filled.Delete, "Delete") }
-            }
+            IconButton(onClick = onCalendar) { Icon(Icons.Filled.Event, "Add to calendar") }
         },
     )
 }

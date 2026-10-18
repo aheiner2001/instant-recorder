@@ -127,8 +127,8 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
                             text = { Text("Delete recording") },
                             onClick = {
                                 menuOpen = false
-                                rec?.let(vm::deleteRecording)
-                                vm.open(Route.Home)
+                                vm.open(Route.Home) // where the "Recording deleted · Undo" snackbar lives
+                                rec?.let { vm.delete(Deletion.OfRecording(it)) }
                             },
                         )
                     }
