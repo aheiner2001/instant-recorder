@@ -3,7 +3,6 @@ package app.instantrecorder.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
@@ -33,20 +32,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.tasks.Due
 
 /**
- * Edits a saved task: title, due date and notes. Edits live in saveable state so they survive
- * folding/unfolding; dismissing the sheet discards them.
+ * Edits a saved task: title, due date, category and notes. Save sits in the header so the keyboard can't
+ * cover it. Edits live in saveable state so they survive folding/unfolding; dismissing discards them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskEditorSheet(
     task: TaskItem,
+    categories: List<Category>,
     canOpenRecording: Boolean,
     onDismiss: () -> Unit,
-    onSave: (title: String, notes: String?, due: Due?) -> Unit,
+    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?) -> Unit,
     onDelete: () -> Unit,
     onOpenRecording: () -> Unit,
 ) {
@@ -54,6 +55,7 @@ fun TaskEditorSheet(
     var notes by rememberSaveable(task.id) { mutableStateOf(task.notes.orEmpty()) }
     var dueAt by rememberSaveable(task.id) { mutableStateOf(task.dueAt) }
     var dueHasTime by rememberSaveable(task.id) { mutableStateOf(task.dueHasTime) }
+    var categoryId by rememberSaveable(task.id) { mutableStateOf(task.categoryId) }
     var pickingDue by remember { mutableStateOf(false) }
     val due = dueAt?.let { Due(it, dueHasTime) }
 
@@ -66,7 +68,15 @@ fun TaskEditorSheet(
                 .padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Edit task", style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Edit task", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                Button(
+                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId) },
+                    enabled = title.isNotBlank(),
+                    modifier = Modifier.padding(start = 8.dp),
+                ) { Text("Save") }
+            }
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
@@ -81,6 +91,7 @@ fun TaskEditorSheet(
                 )
                 if (due != null) TextButton(onClick = { dueAt = null }) { Text("Remove date") }
             }
+            if (categories.isNotEmpty()) CategoryPicker(categories, categoryId, onSelect = { categoryId = it })
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
@@ -95,19 +106,10 @@ fun TaskEditorSheet(
                     Text("Open recording", Modifier.padding(start = 8.dp))
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
-                    onClick = onDelete,
-                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                ) { Text("Delete") }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onDismiss) { Text("Cancel") }
-                Button(
-                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due) },
-                    enabled = title.isNotBlank(),
-                    modifier = Modifier.padding(start = 8.dp),
-                ) { Text("Save") }
-            }
+            TextButton(
+                onClick = onDelete,
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+            ) { Text("Delete task") }
         }
     }
     if (pickingDue) {

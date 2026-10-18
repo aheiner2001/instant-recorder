@@ -2,16 +2,19 @@ package app.instantrecorder.ui
 
 import android.media.MediaPlayer
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -60,27 +63,30 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.instantrecorder.Notifications
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.tasks.TaskSuggestion
+import app.instantrecorder.tasks.rule
 import app.instantrecorder.transcribe.WhisperModel
 import kotlinx.coroutines.launch
 
 /** A suggested task while it's being edited on the review screen. */
-private class EditableTask(title: String, due: Due?, selected: Boolean) {
+private class EditableTask(title: String, due: Due?, selected: Boolean, categoryId: Long?) {
     var title by mutableStateOf(title)
     var due by mutableStateOf(due)
     var selected by mutableStateOf(selected)
+    var categoryId by mutableStateOf(categoryId)
     var saved by mutableStateOf(false)
 
-    fun toSuggestion() = TaskSuggestion(title.trim(), due, actionable = true)
+    fun toSuggestion() = TaskSuggestion(title.trim(), due, actionable = true, categoryId = categoryId)
 }
 
 private fun editableFrom(suggestions: List<TaskSuggestion>) =
-    suggestions.map { EditableTask(it.title, it.due, it.actionable || suggestions.size == 1) }.toMutableStateList()
+    suggestions.map { EditableTask(it.title, it.due, it.actionable || suggestions.size == 1, it.categoryId) }.toMutableStateList()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,7 +102,9 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
 
     val rec = recording
     val transcript = rec?.transcript
-    val tasks = remember(recordingId, transcript) { editableFrom(TaskExtractor.extract(transcript.orEmpty())) }
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    val rules = remember(categories) { categories.map { it.rule() } }
+    val tasks = remember(recordingId, transcript, rules) { editableFrom(TaskExtractor.extract(transcript.orEmpty(), categories = rules)) }
     val selected = tasks.filter { it.selected && !it.saved && it.title.isNotBlank() }
 
     Scaffold(
@@ -129,7 +137,8 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
         },
         bottomBar = {
             if (transcript != null) {
-                BottomAppBar {
+                // Rides on top of the keyboard, so Save stays reachable while editing a title.
+                BottomAppBar(Modifier.imePadding()) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -185,16 +194,21 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Tasks", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
                         TextButton(onClick = {
-                            val whole = TaskExtractor.extract(transcript)
+                            val whole = TaskExtractor.extract(transcript, categories = rules)
                             val title = whole.firstOrNull { it.actionable }?.title ?: whole.firstOrNull()?.title.orEmpty()
                             tasks.clear()
-                            tasks.add(EditableTask(title, whole.firstNotNullOfOrNull { it.due }, selected = true))
+                            tasks.add(
+                                EditableTask(
+                                    title, whole.firstNotNullOfOrNull { it.due }, selected = true,
+                                    categoryId = whole.firstNotNullOfOrNull { it.categoryId },
+                                )
+                            )
                         }) { Text("Make one task") }
                     }
                 }
-                items(tasks) { task -> TaskEditorCard(task, onRemove = { tasks.remove(task) }) }
+                items(tasks) { task -> TaskEditorCard(task, categories, onRemove = { tasks.remove(task) }) }
                 item {
-                    TextButton(onClick = { tasks.add(EditableTask("", null, selected = true)) }, Modifier.padding(horizontal = 8.dp)) {
+                    TextButton(onClick = { tasks.add(EditableTask("", null, selected = true, categoryId = null)) }, Modifier.padding(horizontal = 8.dp)) {
                         Icon(Icons.Filled.Add, null)
                         Text("Add task", Modifier.padding(start = 8.dp))
                     }
@@ -258,8 +272,10 @@ private fun TranscriptEditor(transcript: String, onSave: (String) -> Unit) {
 }
 
 @Composable
-private fun TaskEditorCard(task: EditableTask, onRemove: () -> Unit) {
+private fun TaskEditorCard(task: EditableTask, categories: List<Category>, onRemove: () -> Unit) {
     var pickingDue by remember { mutableStateOf(false) }
+    var pickingCategory by remember { mutableStateOf(false) }
+    val category = categories.firstOrNull { it.id == task.categoryId }
     Card(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
@@ -284,13 +300,35 @@ private fun TaskEditorCard(task: EditableTask, onRemove: () -> Unit) {
             )
             if (!task.saved) IconButton(onClick = onRemove) { Icon(Icons.Filled.Close, "Remove") }
         }
-        Row(Modifier.padding(start = 56.dp, bottom = 8.dp)) {
+        Row(Modifier.padding(start = 56.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             AssistChip(
                 onClick = { pickingDue = true },
                 enabled = !task.saved,
                 label = { Text(task.due?.label() ?: "Add date") },
                 leadingIcon = { Icon(Icons.Filled.Schedule, null) },
             )
+            if (categories.isNotEmpty()) {
+                Box {
+                    AssistChip(
+                        onClick = { pickingCategory = true },
+                        enabled = !task.saved,
+                        label = { Text(category?.name ?: "Category") },
+                        leadingIcon = {
+                            if (category != null) CategoryDot(category.color) else Icon(Icons.AutoMirrored.Filled.Label, null)
+                        },
+                    )
+                    DropdownMenu(expanded = pickingCategory, onDismissRequest = { pickingCategory = false }) {
+                        DropdownMenuItem(text = { Text("None") }, onClick = { task.categoryId = null; pickingCategory = false })
+                        categories.forEach { c ->
+                            DropdownMenuItem(
+                                text = { Text(c.name) },
+                                leadingIcon = { CategoryDot(c.color) },
+                                onClick = { task.categoryId = c.id; pickingCategory = false },
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
     if (pickingDue) {

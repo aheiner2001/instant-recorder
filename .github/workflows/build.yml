@@ -39,9 +39,11 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest
 
-      - name: Build number
+      - name: Version
         id: version
-        run: echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+          echo "name=$(sed -nE 's/.*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
 
       # Pull requests (which can come from forks) never see the signing key; they get a debug-signed APK.
       - name: Decode signing key
@@ -78,5 +80,5 @@ jobs:
           } > notes.md
           gh release create "build-$code" instant-recorder.apk \
             --target "$GITHUB_SHA" \
-            --title "Instant Recorder 0.1 (build $code)" \
+            --title "Instant Recorder ${{ steps.version.outputs.name }} (build $code)" \
             --notes-file notes.md

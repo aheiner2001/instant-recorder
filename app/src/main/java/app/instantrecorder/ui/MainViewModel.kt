@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.instantrecorder.Notifications
 import app.instantrecorder.app
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.Settings
@@ -117,8 +118,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { TaskStore.setDone(context, task, done) }
     }
 
-    fun editTask(taskId: Long, title: String, notes: String?, due: Due?) {
-        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due) }
+    fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?) {
+        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId) }
+    }
+
+    val categories: StateFlow<List<Category>> = graph.db.categories().observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun saveCategory(category: Category) {
+        viewModelScope.launch {
+            val dao = graph.db.categories()
+            if (category.id == 0L) dao.insert(category.copy(position = dao.nextPosition())) else dao.update(category)
+        }
+    }
+
+    /** Its tasks stay, uncategorized. */
+    fun deleteCategory(category: Category) {
+        viewModelScope.launch {
+            graph.db.tasks().clearCategory(category.id)
+            graph.db.categories().delete(category)
+        }
     }
 
     fun deleteTask(task: TaskItem) {

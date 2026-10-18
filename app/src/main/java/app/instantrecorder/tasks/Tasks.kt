@@ -9,6 +9,7 @@ import android.provider.CalendarContract
 import android.util.Log
 import app.instantrecorder.Notifications
 import app.instantrecorder.app
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
@@ -24,6 +25,7 @@ object TaskStore {
                 dueAt = it.due?.epochMillis,
                 dueHasTime = it.due?.hasTime ?: false,
                 recordingId = recordingId,
+                categoryId = it.categoryId,
             )
         }
         val ids = app.db.tasks().insertAll(items)
@@ -44,10 +46,12 @@ object TaskStore {
      * Applies edits to the task as it is in the database now (a reminder's "Done" may have changed it
      * while the editor was open), then re-arms or cancels its reminder for the new due date.
      */
-    suspend fun edit(context: Context, taskId: Long, title: String, notes: String?, due: Due?) {
+    suspend fun edit(context: Context, taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?) {
         val dao = context.app.db.tasks()
         val current = dao.get(taskId) ?: return
-        val updated = current.copy(title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false)
+        val updated = current.copy(
+            title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false, categoryId = categoryId,
+        )
         dao.update(updated)
         Reminders.schedule(context, updated)
         Notifications.cancelReminder(context, taskId)
@@ -58,6 +62,8 @@ object TaskStore {
         Reminders.cancel(context, task.id)
     }
 }
+
+fun Category.rule() = CategoryRule(id, name, keywordList)
 
 /** Hand-offs to other apps. Neither needs a permission. */
 object TaskIntents {
@@ -141,7 +147,7 @@ class TaskActionReceiver : BroadcastReceiver() {
                 val recordingId = intent.getLongExtra(EXTRA_RECORDING_ID, -1)
                 val recording = db.recordings().get(recordingId) ?: return
                 val transcript = recording.transcript ?: return
-                val suggestions = TaskExtractor.extract(transcript)
+                val suggestions = TaskExtractor.extract(transcript, categories = db.categories().all().map { it.rule() })
                 val chosen = suggestions.filter { it.actionable }.ifEmpty { suggestions }
                 val saved = TaskStore.save(context, recordingId, chosen, transcript)
                 Notifications.showSaved(context, recordingId, saved)

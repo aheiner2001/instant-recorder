@@ -30,7 +30,11 @@ data class TaskSuggestion(
     val due: Due?,
     /** Looked like an instruction ("remind me to…", "call…") rather than narration. */
     val actionable: Boolean,
+    val categoryId: Long? = null,
 )
+
+/** A category as the extractor needs it: its name (spoken as "Work: …") and its keywords. */
+data class CategoryRule(val id: Long, val name: String, val keywords: List<String>)
 
 /**
  * Rule-based, on-device task extraction for English voice notes:
@@ -38,13 +42,32 @@ data class TaskSuggestion(
  */
 object TaskExtractor {
 
-    fun extract(transcript: String, now: ZonedDateTime = ZonedDateTime.now()): List<TaskSuggestion> {
+    /**
+     * Categories: a clause starting with a category name ("Work: email Sarah", "Personal. Call mom") files
+     * it and the following clauses there until another one is named. A category's keyword in a clause
+     * wins over that carried-over choice, since it's about this task specifically.
+     */
+    fun extract(
+        transcript: String,
+        now: ZonedDateTime = ZonedDateTime.now(),
+        categories: List<CategoryRule> = emptyList(),
+    ): List<TaskSuggestion> {
         val text = normalize(transcript)
         if (text.isBlank()) return emptyList()
 
+        var spoken: Long? = null
         val suggestions = text.split(SENTENCE_SPLIT)
             .flatMap { it.split(CLAUSE_SPLIT) }
-            .mapNotNull { clause -> suggestionFor(clause, now) }
+            .mapNotNull { rawClause ->
+                var clause = rawClause
+                categoryPrefix(clause, categories)?.let { (category, rest) ->
+                    spoken = category.id
+                    clause = rest
+                }
+                suggestionFor(clause, now)?.let { s ->
+                    s.copy(categoryId = keywordCategory(clause, categories) ?: spoken)
+                }
+            }
             .distinctBy { it.title.lowercase() }
             .take(MAX_SUGGESTIONS)
 
@@ -58,6 +81,25 @@ object TaskExtractor {
         val p = DueParser(input, now)
         return p.parse() to p.remaining
     }
+
+    /** "Work: email Sarah" → (Work, "email Sarah"); a bare "Work." → (Work, ""). */
+    private fun categoryPrefix(clause: String, categories: List<CategoryRule>): Pair<CategoryRule, String>? {
+        val text = stripFillers(clause)
+        for (category in categories) {
+            val prefix = Regex(
+                """^(?:(?:for|in|under)\s+)?${Regex.escape(category.name)}(?:\s+tasks?)?\s*(?:[:,.;\-–—]+\s*|$)""",
+                RegexOption.IGNORE_CASE,
+            )
+            val match = prefix.find(text) ?: continue
+            return category to text.substring(match.range.last + 1)
+        }
+        return null
+    }
+
+    private fun keywordCategory(clause: String, categories: List<CategoryRule>): Long? =
+        categories.firstOrNull { category ->
+            category.keywords.any { kw -> Regex("""\b${Regex.escape(kw)}\b""", RegexOption.IGNORE_CASE).containsMatchIn(clause) }
+        }?.id
 
     private fun suggestionFor(clause: String, now: ZonedDateTime): TaskSuggestion? {
         val (due, withoutDates) = parseDue(clause, now)

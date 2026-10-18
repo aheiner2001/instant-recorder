@@ -8,6 +8,7 @@ import android.os.Build
 import android.provider.Settings
 import android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
 import android.widget.Toast
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,6 +20,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.Button
@@ -36,17 +38,21 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.TriggerGesture
 import app.instantrecorder.data.TriggerKey
 import app.instantrecorder.data.TriggerMode
@@ -65,6 +71,26 @@ fun SettingsScreen(vm: MainViewModel) {
     val exactAlarms = remember(tick) { context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms() }
     val promotedAllowed = remember(tick) {
         Build.VERSION.SDK_INT < 36 || context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()
+    }
+
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    var editingCategory by remember { mutableStateOf<Category?>(null) }
+    editingCategory?.let { editing ->
+        val isNew = editing === NEW_CATEGORY
+        CategoryDialog(
+            initial = editing.takeUnless { isNew },
+            onDismiss = { editingCategory = null },
+            onSave = {
+                vm.saveCategory(it)
+                editingCategory = null
+            },
+            onDelete = if (isNew) null else {
+                {
+                    vm.deleteCategory(editing)
+                    editingCategory = null
+                }
+            },
+        )
     }
 
     LaunchedEffect(Unit) {
@@ -255,6 +281,27 @@ fun SettingsScreen(vm: MainViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            SectionHeader("Categories")
+            categories.forEach { c ->
+                ListItem(
+                    modifier = Modifier.clickable(onClickLabel = "Edit category") { editingCategory = c },
+                    leadingContent = { CategoryDot(c.color, 14.dp) },
+                    headlineContent = { Text(c.name) },
+                    supportingContent = { Text(c.keywords.ifBlank { "No keywords" }) },
+                )
+            }
+            TextButton(onClick = { editingCategory = NEW_CATEGORY }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Icon(Icons.Filled.Add, null)
+                Text("Add category", Modifier.padding(start = 8.dp))
+            }
+            Text(
+                "Start a note with a category's name (\"Work: email Sarah…\") to file the tasks that follow, or give it " +
+                    "keywords. You can always change the category before saving.",
+                Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
             SectionHeader("Reminders")
             ListItem(
                 headlineContent = { Text("Exact reminder times") },
@@ -289,3 +336,6 @@ private fun <T> ChoiceRow(title: String, options: List<Pair<T, String>>, selecte
         }
     }
 }
+
+/** Marker for "add a category" in the editing state. */
+private val NEW_CATEGORY = Category(id = -1, name = "", color = 0)

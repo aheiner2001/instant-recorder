@@ -25,7 +25,10 @@ class InstantRecorderApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        db = Room.databaseBuilder(this, AppDatabase::class.java, "instant-recorder.db").build()
+        db = Room.databaseBuilder(this, AppDatabase::class.java, "instant-recorder.db")
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .addCallback(AppDatabase.SEED_ON_CREATE)
+            .build()
         settings = AppSettings(this)
         models = ModelManager(this, appScope, settings)
         Notifications.createChannels(this)

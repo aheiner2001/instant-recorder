@@ -119,6 +119,47 @@ class TaskExtractorTest {
         assertEquals(listOf("Buy apples, and pears"), extract("Buy apples, and pears").map { it.title })
     }
 
+    private val personal = CategoryRule(1, "Personal", emptyList())
+    private val work = CategoryRule(2, "Work", listOf("budget", "standup meeting"))
+    private val church = CategoryRule(3, "Church", listOf("ward council"))
+    private val categories = listOf(personal, work, church)
+
+    private fun categorized(text: String) =
+        TaskExtractor.extract(text, now, categories).map { it.title to it.categoryId }
+
+    @Test
+    fun `spoken category prefix files the task and is removed from the title`() {
+        assertEquals(listOf("Email Sarah" to 2L), categorized("Work: email Sarah."))
+        assertEquals(listOf("Call mom" to 1L), categorized("Okay, personal, call mom tomorrow."))
+    }
+
+    @Test
+    fun `a spoken category carries over until another is named`() {
+        assertEquals(
+            listOf("Book the room" to 2L, "Send the slides" to 2L, "Call mom" to 1L),
+            categorized("Work. Book the room. Also send the slides. Personal: call mom."),
+        )
+    }
+
+    @Test
+    fun `keywords suggest a category and beat a carried-over one`() {
+        assertEquals(
+            listOf("Call mom" to 1L, "Prepare the ward council agenda" to 3L),
+            categorized("Personal: call mom. Prepare the ward council agenda."),
+        )
+        assertEquals(listOf("Review the budget" to 2L), categorized("Review the budget"))
+    }
+
+    @Test
+    fun `a category word inside a sentence is not a prefix`() {
+        assertEquals(listOf("Work on the garden fence" to null), categorized("I need to work on the garden fence"))
+    }
+
+    @Test
+    fun `no categories configured`() {
+        assertEquals(null, TaskExtractor.extract("Work: email Sarah", now).single().categoryId)
+    }
+
     @Test
     fun `empty transcript`() {
         assertTrue(extract("   ").isEmpty())

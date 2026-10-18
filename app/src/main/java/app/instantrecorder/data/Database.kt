@@ -9,6 +9,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Update
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 enum class RecordingStatus { RECORDED, TRANSCRIBING, DONE, NO_SPEECH, NEEDS_MODEL, FAILED }
@@ -39,7 +41,21 @@ data class TaskItem(
     val done: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val recordingId: Long? = null,
+    val categoryId: Long? = null,
 )
+
+@Entity(tableName = "categories")
+data class Category(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    /** ARGB. */
+    val color: Int,
+    /** Comma-separated words or phrases that suggest this category, e.g. "office, meeting, report". */
+    val keywords: String = "",
+    val position: Int = 0,
+) {
+    val keywordList: List<String> get() = keywords.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+}
 
 @Dao
 interface RecordingDao {
@@ -101,10 +117,61 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE done = 0 AND dueAt IS NOT NULL")
     suspend fun openWithDueDate(): List<TaskItem>
+
+    @Query("UPDATE tasks SET categoryId = NULL WHERE categoryId = :categoryId")
+    suspend fun clearCategory(categoryId: Long)
 }
 
-@Database(entities = [Recording::class, TaskItem::class], version = 1, exportSchema = false)
+@Dao
+interface CategoryDao {
+    @Query("SELECT * FROM categories ORDER BY position, id")
+    fun observeAll(): Flow<List<Category>>
+
+    @Query("SELECT * FROM categories ORDER BY position, id")
+    suspend fun all(): List<Category>
+
+    @Query("SELECT COALESCE(MAX(position), -1) + 1 FROM categories")
+    suspend fun nextPosition(): Int
+
+    @Insert
+    suspend fun insert(category: Category): Long
+
+    @Update
+    suspend fun update(category: Category)
+
+    @Delete
+    suspend fun delete(category: Category)
+}
+
+@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recordings(): RecordingDao
     abstract fun tasks(): TaskDao
+    abstract fun categories(): CategoryDao
+
+    companion object {
+        /** The categories every install starts with; users can rename, recolor or delete them. */
+        private const val SEED_CATEGORIES =
+            "INSERT INTO `categories` (`name`, `color`, `keywords`, `position`) VALUES " +
+                "('Personal', ${0xFF43A047.toInt()}, '', 0), ('Work', ${0xFF1E88E5.toInt()}, '', 1)"
+
+        /** v2 added categories. Existing tasks are kept and start uncategorized. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `categoryId` INTEGER")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `categories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `color` INTEGER NOT NULL, `keywords` TEXT NOT NULL, `position` INTEGER NOT NULL)"
+                )
+                db.execSQL(SEED_CATEGORIES)
+            }
+        }
+
+        /** Fresh installs get the same starting categories as upgraded ones. */
+        val SEED_ON_CREATE = object : Callback() {
+            override fun onCreate(db: SupportSQLiteDatabase) {
+                db.execSQL(SEED_CATEGORIES)
+            }
+        }
+    }
 }

@@ -51,6 +51,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -62,6 +63,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -97,6 +99,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.Settings
@@ -120,6 +123,8 @@ fun HomeScreen(vm: MainViewModel) {
     val tasks by vm.tasks.collectAsStateWithLifecycle()
     val transcribing by vm.transcribing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val categories by vm.categories.collectAsStateWithLifecycle()
+    var categoryFilter by rememberSaveable { mutableStateOf<Long?>(null) } // null = all
     // An id, not the task, so the editor survives folding/unfolding and always shows the current row.
     var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
@@ -160,10 +165,11 @@ fun HomeScreen(vm: MainViewModel) {
     tasks.firstOrNull { it.id == editingTaskId }?.let { task ->
         TaskEditorSheet(
             task = task,
+            categories = categories,
             canOpenRecording = recordings.any { it.id == task.recordingId },
             onDismiss = { editingTaskId = null },
-            onSave = { title, notes, due ->
-                vm.editTask(task.id, title, notes, due)
+            onSave = { title, notes, due, categoryId ->
+                vm.editTask(task.id, title, notes, due, categoryId)
                 editingTaskId = null
             },
             onDelete = {
@@ -227,10 +233,31 @@ fun HomeScreen(vm: MainViewModel) {
                     }
                 }
             } else {
+                if (categories.isNotEmpty() && tasks.isNotEmpty()) {
+                    item {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            item { FilterChip(selected = categoryFilter == null, onClick = { categoryFilter = null }, label = { Text("All") }) }
+                            items(categories, key = { it.id }) { c ->
+                                FilterChip(
+                                    selected = categoryFilter == c.id,
+                                    onClick = { categoryFilter = if (categoryFilter == c.id) null else c.id },
+                                    label = { Text(c.name) },
+                                    leadingIcon = { CategoryDot(c.color) },
+                                )
+                            }
+                        }
+                    }
+                }
+                val shown = if (categoryFilter == null) tasks else tasks.filter { it.categoryId == categoryFilter }
                 if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds.") }
-                items(tasks, key = { it.id }) { t ->
+                else if (shown.isEmpty()) item { EmptyHint("No tasks in this category.") }
+                items(shown, key = { it.id }) { t ->
                     TaskRow(
                         task = t,
+                        category = categories.firstOrNull { it.id == t.categoryId },
                         onClick = { editingTaskId = t.id },
                         onDone = { vm.setTaskDone(t, it) },
                         onCalendar = {
@@ -412,7 +439,14 @@ private fun RecordingRow(recording: Recording, progress: Int?, onClick: () -> Un
 }
 
 @Composable
-private fun TaskRow(task: TaskItem, onClick: () -> Unit, onDone: (Boolean) -> Unit, onCalendar: () -> Unit, onDelete: () -> Unit) {
+private fun TaskRow(
+    task: TaskItem,
+    category: Category?,
+    onClick: () -> Unit,
+    onDone: (Boolean) -> Unit,
+    onCalendar: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val due = task.dueAt?.let { Due(it, task.dueHasTime) }
     val overdue = !task.done && task.dueAt != null && task.dueHasTime && task.dueAt < System.currentTimeMillis()
     ListItem(
@@ -421,8 +455,15 @@ private fun TaskRow(task: TaskItem, onClick: () -> Unit, onDone: (Boolean) -> Un
         headlineContent = {
             Text(task.title, textDecoration = if (task.done) TextDecoration.LineThrough else null)
         },
-        supportingContent = due?.let {
-            { Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
+        supportingContent = if (due == null && category == null) null else {
+            {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    category?.let { CategoryLabel(it) }
+                    due?.let {
+                        Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
         },
         trailingContent = {
             Row {
