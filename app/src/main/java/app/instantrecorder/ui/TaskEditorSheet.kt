@@ -14,8 +14,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
@@ -26,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +50,7 @@ import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.tasks.rule
 
 /**
@@ -160,6 +164,23 @@ fun TaskEditorSheet(
                 maxLines = 8,
                 modifier = Modifier.fillMaxWidth(),
             )
+            // Uses what's in the fields now, so it works before saving too.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { context.launchSafely(TaskIntents.share(listOf(title.trim() to due))) },
+                    enabled = title.isNotBlank(),
+                ) {
+                    Icon(Icons.Filled.Share, null, Modifier.size(18.dp))
+                    Text("Share", Modifier.padding(start = 8.dp))
+                }
+                OutlinedButton(
+                    onClick = { context.launchSafely(TaskIntents.calendar(title.trim(), notes.trim().ifEmpty { null }, due)) },
+                    enabled = title.isNotBlank(),
+                ) {
+                    Icon(Icons.Filled.Event, null, Modifier.size(18.dp))
+                    Text("Add to calendar", Modifier.padding(start = 8.dp))
+                }
+            }
             if (canOpenRecording) {
                 TextButton(onClick = onOpenRecording) {
                     Icon(Icons.Filled.Mic, null, Modifier.size(18.dp))

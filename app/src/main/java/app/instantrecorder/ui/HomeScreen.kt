@@ -61,6 +61,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -285,6 +286,7 @@ fun HomeScreen(vm: MainViewModel) {
                                     TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
                                 )
                             },
+                            onShare = { context.launchSafely(TaskIntents.share(listOf(t.title to t.dueAt?.let { Due(it, t.dueHasTime) }))) },
                         )
                     }
                 }
@@ -466,6 +468,7 @@ private fun TaskRow(
     onClick: () -> Unit,
     onDone: (Boolean) -> Unit,
     onCalendar: () -> Unit,
+    onShare: () -> Unit,
 ) {
     val due = task.dueAt?.let { Due(it, task.dueHasTime) }
     val overdue = !task.done && task.dueAt != null && task.dueHasTime && task.dueAt < System.currentTimeMillis()
@@ -486,7 +489,10 @@ private fun TaskRow(
             }
         },
         trailingContent = {
-            IconButton(onClick = onCalendar) { Icon(Icons.Filled.Event, "Add to calendar") }
+            Row {
+                IconButton(onClick = onShare) { Icon(Icons.Filled.Share, "Share to another app") }
+                IconButton(onClick = onCalendar) { Icon(Icons.Filled.Event, "Add to calendar") }
+            }
         },
     )
 }
