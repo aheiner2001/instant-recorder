@@ -167,7 +167,7 @@ fun TaskEditorSheet(
             // Uses what's in the fields now, so it works before saving too.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(
-                    onClick = { context.launchSafely(TaskIntents.share(listOf(title.trim() to due))) },
+                    onClick = { context.shareTasks(listOf(title.trim() to due)) },
                     enabled = title.isNotBlank(),
                 ) {
                     Icon(Icons.Filled.Share, null, Modifier.size(18.dp))

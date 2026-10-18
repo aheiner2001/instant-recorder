@@ -79,10 +79,11 @@ object TaskIntents {
     }
 
     /** One task per line, which Todoist/TickTick/Keep all turn into sensible items. */
+    fun shareText(tasks: List<Pair<String, Due?>>): String =
+        tasks.joinToString("\n") { (title, due) -> if (due != null) "$title (${due.label()})" else title }
+
     fun share(tasks: List<Pair<String, Due?>>): Intent {
-        val text = tasks.joinToString("\n") { (title, due) ->
-            if (due != null) "$title (${due.label()})" else title
-        }
+        val text = shareText(tasks)
         val send = Intent(Intent.ACTION_SEND)
             .setType("text/plain")
             .putExtra(Intent.EXTRA_TEXT, text)

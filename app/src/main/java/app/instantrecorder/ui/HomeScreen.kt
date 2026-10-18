@@ -286,7 +286,7 @@ fun HomeScreen(vm: MainViewModel) {
                                     TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
                                 )
                             },
-                            onShare = { context.launchSafely(TaskIntents.share(listOf(t.title to t.dueAt?.let { Due(it, t.dueHasTime) }))) },
+                            onShare = { context.shareTasks(listOf(t.title to t.dueAt?.let { Due(it, t.dueHasTime) })) },
                         )
                     }
                 }

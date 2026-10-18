@@ -146,7 +146,7 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
                     ) {
                         FilledTonalIconButton(
                             onClick = {
-                                context.launchSafely(TaskIntents.share(selected.map { it.title.trim() to it.due }))
+                                context.shareTasks(selected.map { it.title.trim() to it.due })
                             },
                             enabled = selected.isNotEmpty(),
                         ) { Icon(Icons.Filled.Share, "Share to another app") }

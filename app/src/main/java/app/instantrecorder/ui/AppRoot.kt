@@ -1,6 +1,8 @@
 package app.instantrecorder.ui
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.text.format.DateFormat
@@ -63,6 +65,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.TaskIntents
 import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.LocalDate
@@ -179,6 +182,16 @@ fun Context.launchSafely(intent: Intent) {
     } catch (_: ActivityNotFoundException) {
         Toast.makeText(this, "No app found to handle this", Toast.LENGTH_SHORT).show()
     }
+}
+
+/**
+ * Opens the share sheet for [tasks], and copies them too: some apps (Asana) open an empty form and ignore
+ * shared text, so the user can paste instead.
+ */
+fun Context.shareTasks(tasks: List<Pair<String, Due?>>) {
+    getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Task", TaskIntents.shareText(tasks)))
+    Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+    launchSafely(TaskIntents.share(tasks))
 }
 
 /** Date first, then an optional time ("All day" keeps it date-only). */
