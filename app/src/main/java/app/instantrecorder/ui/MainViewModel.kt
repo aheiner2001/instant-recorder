@@ -160,6 +160,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { TaskStore.setDone(context, task, done) }
     }
 
+    /** A task typed in by hand, not from a recording. */
+    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?) {
+        viewModelScope.launch {
+            TaskStore.save(context, recordingId = null, listOf(TaskSuggestion(title, due, actionable = true, categoryId = categoryId)), notes)
+        }
+    }
+
     fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?) {
         viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId) }
     }

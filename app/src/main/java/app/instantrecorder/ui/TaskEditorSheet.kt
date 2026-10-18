@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,13 +32,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.tasks.Due
 
 /**
- * Edits a saved task: title, due date, category and notes. Save sits in the header so the keyboard can't
+ * Edits a saved task, or creates one when [isNew]: title, due date, category and notes. Save sits in the header so the keyboard can't
  * cover it. Edits live in saveable state so they survive folding/unfolding; dismissing discards them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -45,6 +48,7 @@ import app.instantrecorder.tasks.Due
 fun TaskEditorSheet(
     task: TaskItem,
     categories: List<Category>,
+    isNew: Boolean,
     canOpenRecording: Boolean,
     onDismiss: () -> Unit,
     onSave: (title: String, notes: String?, due: Due?, categoryId: Long?) -> Unit,
@@ -58,6 +62,9 @@ fun TaskEditorSheet(
     var categoryId by rememberSaveable(task.id) { mutableStateOf(task.categoryId) }
     var pickingDue by remember { mutableStateOf(false) }
     val due = dueAt?.let { Due(it, dueHasTime) }
+    val titleFocus = remember { FocusRequester() }
+    // A new task starts with the cursor in the title and the keyboard up.
+    LaunchedEffect(isNew) { if (isNew) titleFocus.requestFocus() }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -69,7 +76,7 @@ fun TaskEditorSheet(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Edit task", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                Text(if (isNew) "New task" else "Edit task", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Button(
                     onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId) },
@@ -81,7 +88,7 @@ fun TaskEditorSheet(
                 value = title,
                 onValueChange = { title = it },
                 label = { Text("Task") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(titleFocus),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AssistChip(
@@ -106,10 +113,12 @@ fun TaskEditorSheet(
                     Text("Open recording", Modifier.padding(start = 8.dp))
                 }
             }
-            TextButton(
-                onClick = onDelete,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
-            ) { Text("Delete task") }
+            if (!isNew) {
+                TextButton(
+                    onClick = onDelete,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                ) { Text("Delete task") }
+            }
         }
     }
     if (pickingDue) {

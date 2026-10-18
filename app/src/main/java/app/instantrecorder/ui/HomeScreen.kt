@@ -56,6 +56,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Mic
@@ -85,6 +86,7 @@ import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -166,14 +168,21 @@ fun HomeScreen(vm: MainViewModel) {
         }
     }
 
-    tasks.firstOrNull { it.id == editingTaskId }?.let { task ->
+    val editingTask = if (editingTaskId == NEW_TASK_ID) {
+        TaskItem(id = NEW_TASK_ID, title = "", categoryId = categoryFilter) // starts in the category being viewed
+    } else {
+        tasks.firstOrNull { it.id == editingTaskId }
+    }
+    editingTask?.let { task ->
+        val isNew = task.id == NEW_TASK_ID
         TaskEditorSheet(
             task = task,
             categories = categories,
+            isNew = isNew,
             canOpenRecording = recordings.any { it.id == task.recordingId },
             onDismiss = { editingTaskId = null },
             onSave = { title, notes, due, categoryId ->
-                vm.editTask(task.id, title, notes, due, categoryId)
+                if (isNew) vm.addTask(title, notes, due, categoryId) else vm.editTask(task.id, title, notes, due, categoryId)
                 editingTaskId = null
             },
             onDelete = {
@@ -255,8 +264,14 @@ fun HomeScreen(vm: MainViewModel) {
                         }
                     }
                 }
+                item {
+                    TextButton(onClick = { editingTaskId = NEW_TASK_ID }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                        Icon(Icons.Filled.Add, null)
+                        Text("Add task", Modifier.padding(start = 8.dp))
+                    }
+                }
                 val shown = if (categoryFilter == null) tasks else tasks.filter { it.categoryId == categoryFilter }
-                if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds.") }
+                if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds, or add one by hand.") }
                 else if (shown.isEmpty()) item { EmptyHint("No tasks in this category.") }
                 items(shown, key = { it.id }) { t ->
                     SwipeToDelete(enabled = true, onDelete = { vm.delete(Deletion.OfTask(t)) }, shape = RectangleShape) {
@@ -487,6 +502,9 @@ fun SectionHeader(text: String) {
 }
 
 private val LOCK_DISTANCE = 96.dp
+
+/** editingTaskId value for "a new, unsaved task". Real ids start at 1. */
+private const val NEW_TASK_ID = -1L
 
 /**
  * The mic button. Tap: a quick note (stops after a pause or a short limit). Press and slide up onto the
