@@ -53,7 +53,7 @@ object Notifications {
             .setContentTitle(if (status.long) "Long recording…" else "Recording a quick note…")
             .setContentText(
                 if (status.long) "Stops at ${formatLimit(status.limitMs)} or when you tap Stop"
-                else "Stops after a pause or at ${formatLimit(status.limitMs)}. Tap Keep recording for longer."
+                else "Stops after a pause or at ${formatLimit(status.limitMs)}. Tap Extend for a long recording."
             )
             .setWhen(status.startedAt)
             .setUsesChronometer(true)
@@ -68,7 +68,7 @@ object Notifications {
             .setColor(RECORDING_RED)
             .setContentIntent(openApp(context))
             .addAction(R.drawable.ic_stop, "Stop", serviceAction(context, RecordingService.ACTION_STOP))
-        if (!status.long) builder.addAction(R.drawable.ic_mic, "Keep recording", serviceAction(context, RecordingService.ACTION_LOCK))
+        if (!status.long) builder.addAction(R.drawable.ic_mic, "Extend", serviceAction(context, RecordingService.ACTION_LOCK))
         return builder
             .addAction(R.drawable.ic_stop, "Discard", serviceAction(context, RecordingService.ACTION_CANCEL))
             .build()

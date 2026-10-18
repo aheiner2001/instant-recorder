@@ -152,7 +152,7 @@ private fun RecordingOverlay(recording: RecorderState.Status.Recording, vm: Main
             if (!recording.long) {
                 OutlinedButton(onClick = vm::lockRecording) {
                     Icon(Icons.Filled.Lock, null, Modifier.size(18.dp))
-                    Text("Keep recording", Modifier.padding(start = 8.dp))
+                    Text("Extend", Modifier.padding(start = 8.dp))
                 }
             }
             TextButton(onClick = vm::discardRecording) { Text("Discard") }

@@ -1,5 +1,9 @@
 package app.instantrecorder.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -12,11 +16,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -34,10 +41,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.rule
 
 /**
  * Edits a saved task, or creates one when [isNew]: title, due date, category and notes. Save sits in the header so the keyboard can't
@@ -63,6 +73,30 @@ fun TaskEditorSheet(
     var pickingDue by remember { mutableStateOf(false) }
     val due = dueAt?.let { Due(it, dueHasTime) }
     val titleFocus = remember { FocusRequester() }
+    val context = LocalContext.current
+    val dictation = rememberDictation()
+    val rules = remember(categories) { categories.map { it.rule() } }
+    // "Call the dentist tomorrow at 3 pm" → title, due date and (spoken or keyword) category.
+    val applyDictation: (String) -> Unit = { text ->
+        val parsed = TaskExtractor.extract(text, categories = rules)
+        title = (parsed.firstOrNull { it.actionable } ?: parsed.firstOrNull())?.title ?: text.trim()
+        parsed.firstNotNullOfOrNull { it.due }?.let {
+            dueAt = it.epochMillis
+            dueHasTime = it.hasTime
+        }
+        parsed.firstNotNullOfOrNull { it.categoryId }?.let { categoryId = it }
+    }
+    val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) dictation.start(applyDictation)
+    }
+    val startDictation = {
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            dictation.start(applyDictation)
+        } else {
+            micPermission.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
+    val dictationState = dictation.state
     // A new task starts with the cursor in the title and the keyboard up.
     LaunchedEffect(isNew) { if (isNew) titleFocus.requestFocus() }
 
@@ -85,9 +119,28 @@ fun TaskEditorSheet(
                 ) { Text("Save") }
             }
             OutlinedTextField(
-                value = title,
+                // While the system recognizer is listening, the words appear here as they're recognized.
+                value = (dictationState as? DictationState.Listening)?.partial?.takeIf { it.isNotEmpty() } ?: title,
                 onValueChange = { title = it },
+                readOnly = dictation.active,
                 label = { Text("Task") },
+                trailingIcon = if (!isNew) null else {
+                    {
+                        when (dictationState) {
+                            is DictationState.Listening -> IconButton(onClick = dictation::stop) {
+                                Icon(Icons.Filled.Stop, "Finish speaking", tint = MaterialTheme.colorScheme.error)
+                            }
+                            DictationState.Transcribing -> CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                            else -> IconButton(onClick = startDictation) { Icon(Icons.Filled.Mic, "Say the task") }
+                        }
+                    }
+                },
+                supportingText = when (dictationState) {
+                    is DictationState.Listening -> { { Text("Listening… pause or tap ■ when you're done") } }
+                    DictationState.Transcribing -> { { Text("Transcribing…") } }
+                    is DictationState.Failed -> { { Text(dictationState.message, color = MaterialTheme.colorScheme.error) } }
+                    DictationState.Idle -> if (isNew) { { Text("Type it, or tap the mic and say it, e.g. \"call the dentist tomorrow at 3\"") } } else null
+                },
                 modifier = Modifier.fillMaxWidth().focusRequester(titleFocus),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {

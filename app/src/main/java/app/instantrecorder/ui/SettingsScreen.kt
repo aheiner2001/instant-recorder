@@ -209,7 +209,7 @@ fun SettingsScreen(vm: MainViewModel) {
                 onSelect = { v -> vm.updateSettings { it.copy(longMaxMin = v) } },
             )
             Text(
-                "For a long recording, slide the mic button up to lock it, or tap Keep recording while a quick note runs.",
+                "For a long recording, slide the mic button up to lock it, or tap Extend while a quick note runs.",
                 Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
