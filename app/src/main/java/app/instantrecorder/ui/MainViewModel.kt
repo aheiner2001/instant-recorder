@@ -14,6 +14,7 @@ import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
 import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.Reminders
+import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskStore
 import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.transcribe.WhisperLib
@@ -32,10 +33,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** Something the user deleted, still undoable until its snackbar goes away. */
-sealed interface Deletion {
+/** Something the user can still take back while its snackbar is showing. */
+sealed interface Undoable {
     val message: String
+}
 
+/** A repeating task checked off; [next] is the occurrence that took over. */
+data class Completion(val task: TaskItem, val next: TaskItem?) : Undoable {
+    override val message get() = next?.dueAt?.let { "Done · next: ${Due(it, next.dueHasTime).label()}" } ?: "Done"
+}
+
+/** Something the user deleted, still undoable until its snackbar goes away. */
+sealed interface Deletion : Undoable {
     data class OfRecording(val recording: Recording) : Deletion {
         override val message get() = "Recording deleted"
     }
@@ -72,9 +81,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         combine(graph.db.tasks().observeAll(), hiddenTasks) { all, hidden -> all.filterNot { it.id in hidden } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** Deletions waiting for the home screen's Undo snackbar; buffered so none is missed while navigating there. */
-    private val pendingDeletions = Channel<Deletion>(Channel.BUFFERED)
-    val deletions: Flow<Deletion> = pendingDeletions.receiveAsFlow()
+    /** Actions waiting for the home screen's Undo snackbar; buffered so none is missed while navigating there. */
+    private val pendingUndoables = Channel<Undoable>(Channel.BUFFERED)
+    val undoables: Flow<Undoable> = pendingUndoables.receiveAsFlow()
 
     val settings: StateFlow<Settings> = graph.settings.state
     val installedModels = graph.models.installed
@@ -112,10 +121,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Reminders.cancel(context, item.task.id) // don't remind about a task that's on its way out
             }
         }
-        pendingDeletions.trySend(item)
+        pendingUndoables.trySend(item)
     }
 
-    fun undoDeletion(item: Deletion) {
+    /** The snackbar's Undo was tapped. */
+    fun undo(item: Undoable) {
+        when (item) {
+            is Deletion -> undoDeletion(item)
+            is Completion -> graph.appScope.launch { TaskStore.undoComplete(context, item.task, item.next) }
+        }
+    }
+
+    /** The snackbar went away without Undo. Completions are already applied. */
+    fun commit(item: Undoable) {
+        if (item is Deletion) commitDeletion(item)
+    }
+
+    private fun undoDeletion(item: Deletion) {
         when (item) {
             is Deletion.OfRecording -> hiddenRecordings.update { it - item.recording.id }
             is Deletion.OfTask -> {
@@ -125,7 +147,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun commitDeletion(item: Deletion) {
+    private fun commitDeletion(item: Deletion) {
         // App scope: when the activity finishes with a snackbar up, this runs after viewModelScope is cancelled.
         graph.appScope.launch(Dispatchers.IO) {
             when (item) {
@@ -157,18 +179,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setTaskDone(task: TaskItem, done: Boolean) {
-        viewModelScope.launch { TaskStore.setDone(context, task, done) }
-    }
-
-    /** A task typed in by hand, not from a recording. */
-    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?) {
         viewModelScope.launch {
-            TaskStore.save(context, recordingId = null, listOf(TaskSuggestion(title, due, actionable = true, categoryId = categoryId)), notes)
+            if (done && task.repeatDays != Repeat.NONE) {
+                pendingUndoables.send(Completion(task, TaskStore.complete(context, task)))
+            } else {
+                TaskStore.setDone(context, task, done)
+            }
         }
     }
 
-    fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?) {
-        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId) }
+    /** A task typed in by hand, not from a recording. */
+    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) {
+        viewModelScope.launch {
+            val task = TaskSuggestion(title, due, actionable = true, categoryId = categoryId, repeatDays = repeatDays)
+            TaskStore.save(context, recordingId = null, listOf(task), notes)
+        }
+    }
+
+    fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) {
+        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId, repeatDays) }
     }
 
     val categories: StateFlow<List<Category>> = graph.db.categories().observeAll()

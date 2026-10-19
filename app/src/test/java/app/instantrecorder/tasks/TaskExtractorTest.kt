@@ -160,6 +160,34 @@ class TaskExtractorTest {
         assertEquals(null, TaskExtractor.extract("Work: email Sarah", now).single().categoryId)
     }
 
+    private fun repeat(text: String) = extract(text).single().let { Triple(it.title, it.repeatDays, it.due!!.at()) }
+
+    @Test
+    fun `every weekday at a time repeats on weekdays from the next one`() {
+        // Friday 9:00 now; "at 9" today has passed, so the first is Monday.
+        assertEquals(
+            Triple("Stand-up", Repeat.WEEKDAYS, LocalDateTime.of(2026, 10, 19, 9, 0)),
+            repeat("Stand-up every weekday at 9 am"),
+        )
+    }
+
+    @Test
+    fun `every monday and thursday`() {
+        assertEquals(
+            Triple("Water the plants", Repeat.of(java.time.DayOfWeek.MONDAY, java.time.DayOfWeek.THURSDAY), LocalDateTime.of(2026, 10, 19, 0, 0)),
+            repeat("Remind me to water the plants every Monday and Thursday"),
+        )
+    }
+
+    @Test
+    fun `daily and plural weekdays repeat, a single on-weekday does not`() {
+        assertEquals(Repeat.EVERY_DAY, extract("Take my vitamins daily").single().repeatDays)
+        assertEquals(Repeat.of(java.time.DayOfWeek.TUESDAY), extract("Take out the trash on Tuesdays").single().repeatDays)
+        val once = extract("Call the bank on Tuesday").single()
+        assertEquals(Repeat.NONE, once.repeatDays)
+        assertEquals(LocalDateTime.of(2026, 10, 20, 0, 0), once.due!!.at())
+    }
+
     @Test
     fun `empty transcript`() {
         assertTrue(extract("   ").isEmpty())

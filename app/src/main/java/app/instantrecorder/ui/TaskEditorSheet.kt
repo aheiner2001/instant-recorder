@@ -36,6 +36,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,12 +50,15 @@ import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.Repeat
+import java.time.Instant
+import java.time.ZonedDateTime
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.tasks.rule
 
 /**
- * Edits a saved task, or creates one when [isNew]: title, due date, category and notes. Save sits in the header so the keyboard can't
+ * Edits a saved task, or creates one when [isNew]: title, due date, category, repeat and notes. Save sits in the header so the keyboard can't
  * cover it. Edits live in saveable state so they survive folding/unfolding; dismissing discards them.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,7 +69,7 @@ fun TaskEditorSheet(
     isNew: Boolean,
     canOpenRecording: Boolean,
     onDismiss: () -> Unit,
-    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?) -> Unit,
+    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) -> Unit,
     onDelete: () -> Unit,
     onOpenRecording: () -> Unit,
 ) {
@@ -74,6 +78,20 @@ fun TaskEditorSheet(
     var dueAt by rememberSaveable(task.id) { mutableStateOf(task.dueAt) }
     var dueHasTime by rememberSaveable(task.id) { mutableStateOf(task.dueHasTime) }
     var categoryId by rememberSaveable(task.id) { mutableStateOf(task.categoryId) }
+    var repeatDays by rememberSaveable(task.id) { mutableIntStateOf(task.repeatDays) }
+    // Choosing repeat days moves the due date to the first matching day (keeping its time), if it isn't one.
+    val onRepeatChange = { days: Int ->
+        repeatDays = days
+        if (days != Repeat.NONE) {
+            val now = ZonedDateTime.now()
+            val current = dueAt?.let { Instant.ofEpochMilli(it).atZone(now.zone) }
+            if (current == null || !Repeat.has(days, current.dayOfWeek)) {
+                val first = Repeat.first(days, now, current?.takeIf { dueHasTime }?.toLocalTime())
+                dueAt = first.epochMillis
+                dueHasTime = first.hasTime
+            }
+        }
+    }
     var pickingDue by remember { mutableStateOf(false) }
     val due = dueAt?.let { Due(it, dueHasTime) }
     val titleFocus = remember { FocusRequester() }
@@ -89,6 +107,7 @@ fun TaskEditorSheet(
             dueHasTime = it.hasTime
         }
         parsed.firstNotNullOfOrNull { it.categoryId }?.let { categoryId = it }
+        parsed.firstOrNull { it.repeatDays != Repeat.NONE }?.let { repeatDays = it.repeatDays }
     }
     val micPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) dictation.start(applyDictation)
@@ -117,7 +136,7 @@ fun TaskEditorSheet(
                 Text(if (isNew) "New task" else "Edit task", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Button(
-                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId) },
+                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId, repeatDays) },
                     enabled = title.isNotBlank(),
                     modifier = Modifier.padding(start = 8.dp),
                 ) { Text("Save") }
@@ -156,6 +175,7 @@ fun TaskEditorSheet(
                 if (due != null) TextButton(onClick = { dueAt = null }) { Text("Remove date") }
             }
             if (categories.isNotEmpty()) CategoryPicker(categories, categoryId, onSelect = { categoryId = it })
+            RepeatDaysPicker(repeatDays, onRepeatChange)
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },

@@ -112,6 +112,7 @@ import app.instantrecorder.data.Settings
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.data.volumeGestureHint
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.transcribe.WhisperModel
 import app.instantrecorder.trigger.VolumeKeyTriggerService
@@ -136,9 +137,9 @@ fun HomeScreen(vm: MainViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
 
     val snackbar = remember { SnackbarHostState() }
-    // Shows "… deleted · Undo" for every delete in the app (swipes here, Delete in the editor or review screen).
+    // Shows "… · Undo" for every undoable action: deletes anywhere in the app, checking off a repeating task.
     LaunchedEffect(Unit) {
-        vm.deletions.collect { item ->
+        vm.undoables.collect { item ->
             launch {
                 // A newer delete takes over the snackbar, which commits the previous one.
                 snackbar.currentSnackbarData?.dismiss()
@@ -148,7 +149,7 @@ fun HomeScreen(vm: MainViewModel) {
                         SnackbarResult.ActionPerformed
                 } finally {
                     // Also reached when Home leaves composition (navigation, folding, finishing) with the snackbar up.
-                    if (undo) vm.undoDeletion(item) else vm.commitDeletion(item)
+                    if (undo) vm.undo(item) else vm.commit(item)
                 }
             }
         }
@@ -182,8 +183,9 @@ fun HomeScreen(vm: MainViewModel) {
             isNew = isNew,
             canOpenRecording = recordings.any { it.id == task.recordingId },
             onDismiss = { editingTaskId = null },
-            onSave = { title, notes, due, categoryId ->
-                if (isNew) vm.addTask(title, notes, due, categoryId) else vm.editTask(task.id, title, notes, due, categoryId)
+            onSave = { title, notes, due, categoryId, repeatDays ->
+                if (isNew) vm.addTask(title, notes, due, categoryId, repeatDays)
+                else vm.editTask(task.id, title, notes, due, categoryId, repeatDays)
                 editingTaskId = null
             },
             onDelete = {
@@ -478,10 +480,11 @@ private fun TaskRow(
         headlineContent = {
             Text(task.title, textDecoration = if (task.done) TextDecoration.LineThrough else null)
         },
-        supportingContent = if (due == null && category == null) null else {
+        supportingContent = if (due == null && category == null && task.repeatDays == Repeat.NONE) null else {
             {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     category?.let { CategoryLabel(it) }
+                    if (task.repeatDays != Repeat.NONE) RepeatLabel(task.repeatDays)
                     due?.let {
                         Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }

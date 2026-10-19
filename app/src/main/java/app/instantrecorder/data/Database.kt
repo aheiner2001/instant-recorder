@@ -1,5 +1,6 @@
 package app.instantrecorder.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Delete
@@ -42,6 +43,8 @@ data class TaskItem(
     val createdAt: Long = System.currentTimeMillis(),
     val recordingId: Long? = null,
     val categoryId: Long? = null,
+    /** Weekly repeat days (see tasks.Repeat); 0 = one-off. Only the open occurrence carries it. */
+    @ColumnInfo(defaultValue = "0") val repeatDays: Int = 0,
 )
 
 @Entity(tableName = "categories")
@@ -143,7 +146,7 @@ interface CategoryDao {
     suspend fun delete(category: Category)
 }
 
-@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 2, exportSchema = false)
+@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recordings(): RecordingDao
     abstract fun tasks(): TaskDao
@@ -164,6 +167,13 @@ abstract class AppDatabase : RoomDatabase() {
                         "`name` TEXT NOT NULL, `color` INTEGER NOT NULL, `keywords` TEXT NOT NULL, `position` INTEGER NOT NULL)"
                 )
                 db.execSQL(SEED_CATEGORIES)
+            }
+        }
+
+        /** v3 added repeating tasks. */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `repeatDays` INTEGER NOT NULL DEFAULT 0")
             }
         }
 

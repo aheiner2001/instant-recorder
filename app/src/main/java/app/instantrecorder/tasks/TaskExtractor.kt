@@ -31,6 +31,8 @@ data class TaskSuggestion(
     /** Looked like an instruction ("remind me to…", "call…") rather than narration. */
     val actionable: Boolean,
     val categoryId: Long? = null,
+    /** [Repeat] bitmask; 0 = one-off. When set, [due] is the first occurrence. */
+    val repeatDays: Int = Repeat.NONE,
 )
 
 /** A category as the extractor needs it: its name (spoken as "Work: …") and its keywords. */
@@ -102,7 +104,13 @@ object TaskExtractor {
         }?.id
 
     private fun suggestionFor(clause: String, now: ZonedDateTime): TaskSuggestion? {
-        val (due, withoutDates) = parseDue(clause, now)
+        // Repeats first, so "every Monday" isn't read as a one-off "Monday" date.
+        val (repeatDays, withoutRepeat) = parseRepeat(clause)
+        val (parsedDue, withoutDates) = parseDue(withoutRepeat, now)
+        val due = if (repeatDays == Repeat.NONE) parsedDue else {
+            val time = parsedDue?.takeIf { it.hasTime }?.let { java.time.Instant.ofEpochMilli(it.epochMillis).atZone(now.zone).toLocalTime() }
+            Repeat.first(repeatDays, now, time)
+        }
         var title = stripFillers(withoutDates)
         val leadIn = LEAD_IN.find(title)
         if (leadIn != null) title = title.substring(leadIn.range.last + 1)
@@ -112,9 +120,33 @@ object TaskExtractor {
         val words = title.split(' ')
         val firstWord = words.first().lowercase()
         val actionable = leadIn != null || firstWord in ACTION_VERBS
-        // Tiny fragments ("Yeah", "I") are leftovers from splitting, not tasks.
-        if (words.size < 2 && !actionable) return null
-        return TaskSuggestion(capitalize(title.take(MAX_TITLE)), due, actionable)
+        // Tiny fragments ("Yeah", "I") are leftovers from splitting, not tasks — unless a date or repeat says
+        // otherwise ("Stand-up every weekday at 9").
+        if (words.size < 2 && !actionable && due == null) return null
+        return TaskSuggestion(capitalize(title.take(MAX_TITLE)), due, actionable, repeatDays = repeatDays)
+    }
+
+    /**
+     * "every day"/"daily", "every weekday", "on weekends", "every Monday and Thursday", "on Mondays" → the
+     * repeat days and the text without that phrase. A singular "on Monday" stays a one-off date.
+     */
+    private fun parseRepeat(text: String): Pair<Int, String> {
+        for ((regex, days) in REPEAT_PRESETS) {
+            val m = regex.find(text) ?: continue
+            return days to text.removeRange(m.range)
+        }
+        for (m in REPEAT_DAYS.findAll(text)) {
+            val prefix = m.groupValues[1].lowercase()
+            val list = m.groupValues[2]
+            val names = DAY_NAME.findAll(list).map { it.value.lowercase() }.toList()
+            val plural = names.any { it.endsWith("s") }
+            if (prefix == "on" && !plural) continue
+            val days = names.fold(Repeat.NONE) { acc, name ->
+                acc or Repeat.bit(java.time.DayOfWeek.entries.first { name.startsWith(it.name.lowercase().take(3)) })
+            }
+            return days to text.removeRange(m.range)
+        }
+        return Repeat.NONE to text
     }
 
     private fun normalize(raw: String): String = raw
@@ -139,6 +171,19 @@ object TaskExtractor {
     private fun capitalize(s: String) = s.replaceFirstChar { it.titlecase(Locale.getDefault()) }
 
     private const val MAX_SUGGESTIONS = 10
+
+    private val DAY = "(?:mon|tues|wednes|thurs|fri|satur|sun)days?"
+    private val DAY_NAME = Regex(DAY, RegexOption.IGNORE_CASE)
+    private val REPEAT_PRESETS = listOf(
+        Regex("""\b(?:every\s*day|each\s+day|daily)\b""", RegexOption.IGNORE_CASE) to Repeat.EVERY_DAY,
+        Regex("""\b(?:(?:every|each|on)\s+weekdays?|weekdays)\b""", RegexOption.IGNORE_CASE) to Repeat.WEEKDAYS,
+        Regex("""\b(?:(?:every|each|on)\s+weekends?|weekends)\b""", RegexOption.IGNORE_CASE) to Repeat.WEEKENDS,
+    )
+    /** "every Monday and Thursday", "weekly on Friday", "on Mondays, Wednesdays and Fridays". */
+    private val REPEAT_DAYS = Regex(
+        """\b(every\s+week\s+on|weekly\s+on|every|each|on)\s+($DAY(?:\s*(?:,\s*and|,|and|&)\s*$DAY)*)\b""",
+        RegexOption.IGNORE_CASE,
+    )
     private const val MAX_TITLE = 140
 
     private val ACTION_VERBS = setOf(

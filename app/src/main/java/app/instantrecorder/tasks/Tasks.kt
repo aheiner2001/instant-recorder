@@ -12,6 +12,7 @@ import app.instantrecorder.app
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import kotlinx.coroutines.launch
+import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
 
 /** Saving tasks to the in-app list (and arming their reminders). */
@@ -26,6 +27,7 @@ object TaskStore {
                 dueHasTime = it.due?.hasTime ?: false,
                 recordingId = recordingId,
                 categoryId = it.categoryId,
+                repeatDays = it.repeatDays,
             )
         }
         val ids = app.db.tasks().insertAll(items)
@@ -35,8 +37,35 @@ object TaskStore {
         return saved
     }
 
+    /**
+     * Checks [task] off. A repeating task hands its repeat on to a new next occurrence (returned), so only
+     * one open copy ever exists.
+     */
+    suspend fun complete(context: Context, task: TaskItem): TaskItem? {
+        setDone(context, task, true)
+        if (task.repeatDays == Repeat.NONE) return null
+        val due = Repeat.next(task.repeatDays, task.dueAt?.let { Due(it, task.dueHasTime) }, ZonedDateTime.now())
+        val next = task.copy(
+            id = 0, done = false, createdAt = System.currentTimeMillis(), dueAt = due.epochMillis, dueHasTime = due.hasTime,
+        )
+        val saved = next.copy(id = context.app.db.tasks().insertAll(listOf(next)).single())
+        Reminders.schedule(context, saved)
+        return saved
+    }
+
+    /** Undoes [complete]: reopens [task] as it was and removes the occurrence it created. */
+    suspend fun undoComplete(context: Context, task: TaskItem, next: TaskItem?) {
+        next?.let {
+            context.app.db.tasks().delete(it)
+            Reminders.cancel(context, it.id)
+        }
+        context.app.db.tasks().update(task.copy(done = false))
+        Reminders.schedule(context, task.copy(done = false))
+    }
+
     suspend fun setDone(context: Context, task: TaskItem, done: Boolean) {
-        val updated = task.copy(done = done)
+        // A completed occurrence stops repeating; its successor carries the repeat on.
+        val updated = if (done) task.copy(done = true, repeatDays = Repeat.NONE) else task.copy(done = false)
         context.app.db.tasks().update(updated)
         if (done) Reminders.cancel(context, task.id) else Reminders.schedule(context, updated)
         Notifications.cancelReminder(context, task.id)
@@ -46,11 +75,12 @@ object TaskStore {
      * Applies edits to the task as it is in the database now (a reminder's "Done" may have changed it
      * while the editor was open), then re-arms or cancels its reminder for the new due date.
      */
-    suspend fun edit(context: Context, taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?) {
+    suspend fun edit(context: Context, taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) {
         val dao = context.app.db.tasks()
         val current = dao.get(taskId) ?: return
         val updated = current.copy(
             title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false, categoryId = categoryId,
+            repeatDays = repeatDays,
         )
         dao.update(updated)
         Reminders.schedule(context, updated)
@@ -155,7 +185,7 @@ class TaskActionReceiver : BroadcastReceiver() {
             }
             ACTION_MARK_DONE -> {
                 val task = db.tasks().get(intent.getLongExtra(EXTRA_TASK_ID, -1)) ?: return
-                TaskStore.setDone(context, task, true)
+                TaskStore.complete(context, task)
             }
             ACTION_REMIND -> {
                 val task = db.tasks().get(intent.getLongExtra(EXTRA_TASK_ID, -1)) ?: return

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AssistChip
@@ -51,6 +53,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -67,6 +70,7 @@ import app.instantrecorder.data.Category
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.tasks.TaskSuggestion
@@ -75,18 +79,19 @@ import app.instantrecorder.transcribe.WhisperModel
 import kotlinx.coroutines.launch
 
 /** A suggested task while it's being edited on the review screen. */
-private class EditableTask(title: String, due: Due?, selected: Boolean, categoryId: Long?) {
+private class EditableTask(title: String, due: Due?, selected: Boolean, categoryId: Long?, repeatDays: Int = Repeat.NONE) {
     var title by mutableStateOf(title)
     var due by mutableStateOf(due)
     var selected by mutableStateOf(selected)
     var categoryId by mutableStateOf(categoryId)
+    var repeatDays by mutableIntStateOf(repeatDays)
     var saved by mutableStateOf(false)
 
-    fun toSuggestion() = TaskSuggestion(title.trim(), due, actionable = true, categoryId = categoryId)
+    fun toSuggestion() = TaskSuggestion(title.trim(), due, actionable = true, categoryId = categoryId, repeatDays = repeatDays)
 }
 
 private fun editableFrom(suggestions: List<TaskSuggestion>) =
-    suggestions.map { EditableTask(it.title, it.due, it.actionable || suggestions.size == 1, it.categoryId) }.toMutableStateList()
+    suggestions.map { EditableTask(it.title, it.due, it.actionable || suggestions.size == 1, it.categoryId, it.repeatDays) }.toMutableStateList()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -307,6 +312,16 @@ private fun TaskEditorCard(task: EditableTask, categories: List<Category>, onRem
                 label = { Text(task.due?.label() ?: "Add date") },
                 leadingIcon = { Icon(Icons.Filled.Schedule, null) },
             )
+            // Only when the note said so ("every Monday…"); otherwise set it later in the task editor.
+            if (task.repeatDays != Repeat.NONE) {
+                AssistChip(
+                    onClick = { task.repeatDays = Repeat.NONE },
+                    enabled = !task.saved,
+                    label = { Text(Repeat.label(task.repeatDays)) },
+                    leadingIcon = { Icon(Icons.Filled.Repeat, null) },
+                    trailingIcon = { Icon(Icons.Filled.Close, "Don't repeat", Modifier.size(16.dp)) },
+                )
+            }
             if (categories.isNotEmpty()) {
                 Box {
                     AssistChip(
