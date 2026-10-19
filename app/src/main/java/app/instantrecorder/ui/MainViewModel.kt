@@ -13,6 +13,8 @@ import app.instantrecorder.data.TaskItem
 import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.EventLink
+import app.instantrecorder.tasks.EventRequest
 import app.instantrecorder.tasks.Reminders
 import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskStore
@@ -189,15 +191,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** A task typed in by hand, not from a recording. */
-    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) {
+    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?) {
         viewModelScope.launch {
-            val task = TaskSuggestion(title, due, actionable = true, categoryId = categoryId, repeatDays = repeatDays)
+            val task = TaskSuggestion(
+                title, due, actionable = true, categoryId = categoryId, repeatDays = repeatDays,
+                event = link?.let { EventRequest(it.event.title, it.offsetMinutes, "") }, linkedEvent = link?.event,
+            )
             TaskStore.save(context, recordingId = null, listOf(task), notes)
         }
     }
 
-    fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) {
-        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId, repeatDays) }
+    fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?) {
+        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId, repeatDays, link) }
     }
 
     val categories: StateFlow<List<Category>> = graph.db.categories().observeAll()

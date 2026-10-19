@@ -36,6 +36,8 @@ data class Settings(
     val quickMaxSec: Int = 30,
     val longMaxMin: Int = 30,
     val modelId: String = "small.en-q5_1", // "Accurate": clearly better on real notes, worth a few seconds
+    /** Calendars switched off for event reminders (all visible calendars are searched by default). */
+    val excludedCalendarIds: Set<Long> = emptySet(),
 )
 
 /** How to start a recording with the volume buttons, in words for UI hints. */
@@ -66,6 +68,7 @@ class AppSettings(context: Context) {
             putInt("quickMaxSec", next.quickMaxSec)
             putInt("longMaxMin", next.longMaxMin)
             putString("modelId", next.modelId)
+            putString("excludedCalendarIds", next.excludedCalendarIds.joinToString(","))
         }
         _state.value = next
     }
@@ -84,6 +87,8 @@ class AppSettings(context: Context) {
             quickMaxSec = prefs.getInt("quickMaxSec", d.quickMaxSec),
             longMaxMin = prefs.getInt("longMaxMin", d.longMaxMin),
             modelId = prefs.getString("modelId", d.modelId) ?: d.modelId,
+            excludedCalendarIds = prefs.getString("excludedCalendarIds", null).orEmpty()
+                .split(',').mapNotNull { it.trim().toLongOrNull() }.toSet(),
         )
     }
 

@@ -33,6 +33,10 @@ data class TaskSuggestion(
     val categoryId: Long? = null,
     /** [Repeat] bitmask; 0 = one-off. When set, [due] is the first occurrence. */
     val repeatDays: Int = Repeat.NONE,
+    /** "…3 days before the board meeting": the event to look up in the calendar (done outside, by the UI). */
+    val event: EventRequest? = null,
+    /** The calendar event [event] was matched to; then [due] is computed from it. */
+    val linkedEvent: EventRef? = null,
 )
 
 /** A category as the extractor needs it: its name (spoken as "Work: …") and its keywords. */
@@ -104,10 +108,12 @@ object TaskExtractor {
         }?.id
 
     private fun suggestionFor(clause: String, now: ZonedDateTime): TaskSuggestion? {
+        // "…3 days before the board meeting": the date comes from the calendar later, so take that phrase out first.
+        val (event, withoutEvent) = parseEventRequest(clause)
         // Repeats first, so "every Monday" isn't read as a one-off "Monday" date.
-        val (repeatDays, withoutRepeat) = parseRepeat(clause)
+        val (repeatDays, withoutRepeat) = if (event != null) Repeat.NONE to withoutEvent else parseRepeat(withoutEvent)
         val (parsedDue, withoutDates) = parseDue(withoutRepeat, now)
-        val due = if (repeatDays == Repeat.NONE) parsedDue else {
+        val due = if (event != null) null else if (repeatDays == Repeat.NONE) parsedDue else {
             val time = parsedDue?.takeIf { it.hasTime }?.let { java.time.Instant.ofEpochMilli(it.epochMillis).atZone(now.zone).toLocalTime() }
             Repeat.first(repeatDays, now, time)
         }
@@ -122,8 +128,30 @@ object TaskExtractor {
         val actionable = leadIn != null || firstWord in ACTION_VERBS
         // Tiny fragments ("Yeah", "I") are leftovers from splitting, not tasks — unless a date or repeat says
         // otherwise ("Stand-up every weekday at 9").
-        if (words.size < 2 && !actionable && due == null) return null
-        return TaskSuggestion(capitalize(title.take(MAX_TITLE)), due, actionable, repeatDays = repeatDays)
+        if (words.size < 2 && !actionable && due == null && event == null) return null
+        return TaskSuggestion(capitalize(title.take(MAX_TITLE)), due, actionable, repeatDays = repeatDays, event = event)
+    }
+
+    /** "3 days before X", "the day before X", "a week before X", "2 hours before X" → request + rest of the text. */
+    private fun parseEventRequest(text: String): Pair<EventRequest?, String> {
+        val m = BEFORE_EVENT.find(text) ?: return null to text
+        val offset = if (m.groupValues[3].isNotEmpty()) {
+            when (m.groupValues[3].lowercase()) {
+                "week" -> EventTiming.WEEK
+                else -> EventTiming.DAY // the day / night / evening / morning before
+            }
+        } else {
+            val n = m.groupValues[1].lowercase().let { it.toIntOrNull() ?: OFFSET_NUMBERS[it] } ?: return null to text
+            n * when {
+                m.groupValues[2].startsWith("w", ignoreCase = true) -> EventTiming.WEEK
+                m.groupValues[2].startsWith("d", ignoreCase = true) -> EventTiming.DAY
+                m.groupValues[2].startsWith("h", ignoreCase = true) -> EventTiming.HOUR
+                else -> 1
+            }
+        }
+        val query = m.groupValues[4].trim().trimEnd('.', '!', '?', ',', ';')
+        if (query.isBlank() || offset <= 0) return null to text
+        return EventRequest(query, offset, m.value.trim().trimEnd('.', '!', '?', ',', ';')) to text.removeRange(m.range)
     }
 
     /**
@@ -171,6 +199,16 @@ object TaskExtractor {
     private fun capitalize(s: String) = s.replaceFirstChar { it.titlecase(Locale.getDefault()) }
 
     private const val MAX_SUGGESTIONS = 10
+
+    private val OFFSET_NUMBERS = mapOf(
+        "a" to 1, "an" to 1, "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6,
+        "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "a couple of" to 2, "a few" to 3,
+    )
+    /** The event name runs to the end of the clause: "…before the board meeting." */
+    private val BEFORE_EVENT = Regex(
+        """\b(?:(\d+|a couple of|a few|an?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(minutes?|mins?|hours?|days?|weeks?)|the\s+(day|night|evening|morning|week))\s+before\s+(.+)$""",
+        RegexOption.IGNORE_CASE,
+    )
 
     private val DAY = "(?:mon|tues|wednes|thurs|fri|satur|sun)days?"
     private val DAY_NAME = Regex(DAY, RegexOption.IGNORE_CASE)

@@ -1,5 +1,6 @@
 package app.instantrecorder.ui
 
+import android.Manifest
 import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Intent
@@ -8,6 +9,8 @@ import android.os.Build
 import android.provider.Settings
 import android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -52,7 +55,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import app.instantrecorder.data.Category
+import app.instantrecorder.tasks.Calendars
 import app.instantrecorder.data.TriggerGesture
 import app.instantrecorder.data.TriggerKey
 import app.instantrecorder.data.TriggerMode
@@ -73,6 +79,12 @@ fun SettingsScreen(vm: MainViewModel) {
         Build.VERSION.SDK_INT < 36 || context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()
     }
 
+    var calendarAllowed by remember(tick) { mutableStateOf(Calendars.hasPermission(context)) }
+    val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { calendarAllowed = it }
+    var calendars by remember { mutableStateOf<List<Calendars.Calendar>>(emptyList()) }
+    LaunchedEffect(calendarAllowed) {
+        if (calendarAllowed) calendars = withContext(Dispatchers.IO) { Calendars.visible(context) }
+    }
     val categories by vm.categories.collectAsStateWithLifecycle()
     var editingCategory by remember { mutableStateOf<Category?>(null) }
     editingCategory?.let { editing ->
@@ -301,6 +313,36 @@ fun SettingsScreen(vm: MainViewModel) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            SectionHeader("Calendars")
+            Text(
+                "For reminders like \"3 days before the board meeting\". The calendar is only read, on this phone.",
+                Modifier.padding(horizontal = 16.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!calendarAllowed) {
+                Button(
+                    onClick = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
+                    modifier = Modifier.padding(16.dp),
+                ) { Text("Allow calendar access") }
+            } else {
+                calendars.forEach { cal ->
+                    val included = cal.id !in settings.excludedCalendarIds
+                    ListItem(
+                        leadingContent = { CategoryDot(cal.color, 14.dp) },
+                        headlineContent = { Text(cal.name) },
+                        supportingContent = { Text(cal.account) },
+                        trailingContent = {
+                            Switch(checked = included, onCheckedChange = { on ->
+                                vm.updateSettings { s ->
+                                    s.copy(excludedCalendarIds = if (on) s.excludedCalendarIds - cal.id else s.excludedCalendarIds + cal.id)
+                                }
+                            })
+                        },
+                    )
+                }
+            }
 
             SectionHeader("Reminders")
             ListItem(

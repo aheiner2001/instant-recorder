@@ -189,6 +189,27 @@ class TaskExtractorTest {
     }
 
     @Test
+    fun `before an event - action, offset and event name`() {
+        val t = extract("Remind me to prepare the slides 2 days before the board meeting.").single()
+        assertEquals("Prepare the slides", t.title)
+        assertEquals(EventRequest("the board meeting", 2 * EventTiming.DAY, "2 days before the board meeting"), t.event)
+        assertNull(t.due) // comes from the calendar
+    }
+
+    @Test
+    fun `before an event - other phrasings`() {
+        assertEquals(EventTiming.DAY, extract("Buy flowers the day before Mother's Day").single().event!!.offsetMinutes)
+        assertEquals(EventTiming.WEEK, extract("Book the caterer a week before the wedding").single().event!!.offsetMinutes)
+        assertEquals(2 * EventTiming.HOUR, extract("Leave for the airport two hours before my flight").single().event!!.offsetMinutes)
+        assertEquals("ward council", extract("Send the agenda the night before ward council").single().event!!.query)
+    }
+
+    @Test
+    fun `before a plain date is not an event`() {
+        assertNull(extract("Pay the rent before Friday").single().event)
+    }
+
+    @Test
     fun `empty transcript`() {
         assertTrue(extract("   ").isEmpty())
     }

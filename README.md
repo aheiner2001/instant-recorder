@@ -34,7 +34,7 @@ Built and tested on a Pixel 10 Pro Fold (Android 17). It should work on other An
 | Stop | Press either volume button, tap **Stop** in the notification, or just stop talking (it stops after 8 s of silence). |
 | Start without the buttons | Double-tap the back of the phone (Pixel: Settings → System → Gestures → Quick Tap → Open app → **Quick Record**), the Quick Settings tile, or the mic button in the app. |
 
-While recording, a red timer chip shows in the status bar. A few seconds after you stop, a notification lists the tasks it found: tap **Save all**, or open it to edit the tasks, add them to your calendar, or share them to any task app. Saved tasks are in the **Tasks** tab; tap one to change its title, date, category or notes, or use **Add task** to type one in (or tap its mic and say it: "call the dentist tomorrow at 3" fills in the title and date). Swipe a recording or a task to the left to delete it (you can undo). Each task's **Share** button sends it to Google Tasks, Asana, Trello, Keep or any other app that accepts shared text. Tasks can repeat on chosen weekdays ("water the plants every Monday and Thursday", or the Repeat row in the editor); only the next one is listed, and checking it off creates the one after.
+While recording, a red timer chip shows in the status bar. A few seconds after you stop, a notification lists the tasks it found: tap **Save all**, or open it to edit the tasks, add them to your calendar, or share them to any task app. Saved tasks are in the **Tasks** tab; tap one to change its title, date, category or notes, or use **Add task** to type one in (or tap its mic and say it: "call the dentist tomorrow at 3" fills in the title and date). Swipe a recording or a task to the left to delete it (you can undo). Each task's **Share** button sends it to Google Tasks, Asana, Trello, Keep or any other app that accepts shared text. Tasks can repeat on chosen weekdays ("water the plants every Monday and Thursday", or the Repeat row in the editor); only the next one is listed, and checking it off creates the one after. Reminders can also be tied to a calendar event: "prepare the slides 2 days before the board meeting" finds the event and follows it if it's rescheduled (or use **Before an event…** in the task editor).
 
 Single volume presses work exactly as before, including holding a button to change the volume quickly. Everything is adjustable in Settings: the gesture, walkie-talkie mode, silence timeout, maximum length and the speech model.
 
@@ -42,6 +42,7 @@ Single volume presses work exactly as before, including holding a button to chan
 
 - Audio is recorded and transcribed **on the phone** with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). The only network use is the one-time speech model download from Hugging Face.
 - The Accessibility service only watches the **volume buttons**. It doesn't read the screen or what you type.
+- Calendar access (optional, for reminders before events) is read-only and stays on the phone. Settings → Calendars chooses which calendars are searched.
 - Recordings and tasks stay in the app's private storage. Uninstalling deletes them.
 
 ## Build from source

@@ -6,6 +6,7 @@ import androidx.room.Room
 import app.instantrecorder.data.AppDatabase
 import app.instantrecorder.data.AppSettings
 import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.tasks.EventSync
 import app.instantrecorder.transcribe.ModelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +27,7 @@ class InstantRecorderApp : Application() {
     override fun onCreate() {
         super.onCreate()
         db = Room.databaseBuilder(this, AppDatabase::class.java, "instant-recorder.db")
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .addCallback(AppDatabase.SEED_ON_CREATE)
             .build()
         settings = AppSettings(this)
@@ -36,7 +37,9 @@ class InstantRecorderApp : Application() {
         // A transcription can't survive process death, so anything left "in progress" goes back to the queue state.
         appScope.launch {
             db.recordings().resetStatus(from = RecordingStatus.TRANSCRIBING, to = RecordingStatus.RECORDED)
+            EventSync.refresh(this@InstantRecorderApp)
         }
+        EventSync.scheduleDaily(this)
     }
 }
 

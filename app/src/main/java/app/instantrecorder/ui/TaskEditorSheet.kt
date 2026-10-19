@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Schedule
@@ -50,6 +51,9 @@ import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.EventLink
+import app.instantrecorder.tasks.EventTiming
+import app.instantrecorder.tasks.eventLink
 import app.instantrecorder.tasks.Repeat
 import java.time.Instant
 import java.time.ZonedDateTime
@@ -69,7 +73,7 @@ fun TaskEditorSheet(
     isNew: Boolean,
     canOpenRecording: Boolean,
     onDismiss: () -> Unit,
-    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) -> Unit,
+    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?) -> Unit,
     onDelete: () -> Unit,
     onOpenRecording: () -> Unit,
 ) {
@@ -79,9 +83,13 @@ fun TaskEditorSheet(
     var dueHasTime by rememberSaveable(task.id) { mutableStateOf(task.dueHasTime) }
     var categoryId by rememberSaveable(task.id) { mutableStateOf(task.categoryId) }
     var repeatDays by rememberSaveable(task.id) { mutableIntStateOf(task.repeatDays) }
+    // Not saveable (EventRef isn't Parcelable); a fold mid-edit keeps the saved link, which is fine.
+    var link by remember(task.id) { mutableStateOf(task.eventLink) }
+    var pickingEvent by remember { mutableStateOf(false) }
     // Choosing repeat days moves the due date to the first matching day (keeping its time), if it isn't one.
     val onRepeatChange = { days: Int ->
         repeatDays = days
+        if (days != Repeat.NONE) link = null
         if (days != Repeat.NONE) {
             val now = ZonedDateTime.now()
             val current = dueAt?.let { Instant.ofEpochMilli(it).atZone(now.zone) }
@@ -136,7 +144,7 @@ fun TaskEditorSheet(
                 Text(if (isNew) "New task" else "Edit task", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Button(
-                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId, repeatDays) },
+                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId, repeatDays, link) },
                     enabled = title.isNotBlank(),
                     modifier = Modifier.padding(start = 8.dp),
                 ) { Text("Save") }
@@ -176,6 +184,24 @@ fun TaskEditorSheet(
             }
             if (categories.isNotEmpty()) CategoryPicker(categories, categoryId, onSelect = { categoryId = it })
             RepeatDaysPicker(repeatDays, onRepeatChange)
+            val linked = link
+            if (linked != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Event, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text(
+                        "${EventTiming.describe(linked.offsetMinutes)} ${linked.event.title}",
+                        Modifier.weight(1f).padding(start = 8.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    TextButton(onClick = { pickingEvent = true }) { Text("Change") }
+                    IconButton(onClick = { link = null }) { Icon(Icons.Filled.Close, "Remove event reminder") }
+                }
+            } else {
+                TextButton(onClick = { pickingEvent = true }) {
+                    Icon(Icons.Filled.Event, null, Modifier.size(18.dp))
+                    Text("Before an event…", Modifier.padding(start = 8.dp))
+                }
+            }
             OutlinedTextField(
                 value = notes,
                 onValueChange = { notes = it },
@@ -222,7 +248,23 @@ fun TaskEditorSheet(
             onConfirm = {
                 dueAt = it?.epochMillis
                 dueHasTime = it?.hasTime ?: false
+                link = null // a date picked by hand replaces the event-based one
                 pickingDue = false
+            },
+        )
+    }
+    if (pickingEvent) {
+        EventPickerDialog(
+            initialQuery = link?.event?.title ?: title,
+            initialOffsetMinutes = link?.offsetMinutes ?: EventTiming.DAY,
+            onDismiss = { pickingEvent = false },
+            onPick = { picked ->
+                link = picked
+                val d = EventTiming.due(picked.event, picked.offsetMinutes, java.time.ZoneId.systemDefault())
+                dueAt = d.epochMillis
+                dueHasTime = d.hasTime
+                repeatDays = Repeat.NONE
+                pickingEvent = false
             },
         )
     }

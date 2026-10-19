@@ -183,9 +183,9 @@ fun HomeScreen(vm: MainViewModel) {
             isNew = isNew,
             canOpenRecording = recordings.any { it.id == task.recordingId },
             onDismiss = { editingTaskId = null },
-            onSave = { title, notes, due, categoryId, repeatDays ->
-                if (isNew) vm.addTask(title, notes, due, categoryId, repeatDays)
-                else vm.editTask(task.id, title, notes, due, categoryId, repeatDays)
+            onSave = { title, notes, due, categoryId, repeatDays, link ->
+                if (isNew) vm.addTask(title, notes, due, categoryId, repeatDays, link)
+                else vm.editTask(task.id, title, notes, due, categoryId, repeatDays, link)
                 editingTaskId = null
             },
             onDelete = {
@@ -480,11 +480,12 @@ private fun TaskRow(
         headlineContent = {
             Text(task.title, textDecoration = if (task.done) TextDecoration.LineThrough else null)
         },
-        supportingContent = if (due == null && category == null && task.repeatDays == Repeat.NONE) null else {
+        supportingContent = if (due == null && category == null && task.repeatDays == Repeat.NONE && task.eventTitle == null) null else {
             {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     category?.let { CategoryLabel(it) }
                     if (task.repeatDays != Repeat.NONE) RepeatLabel(task.repeatDays)
+                    task.eventTitle?.let { EventLabel(it) }
                     due?.let {
                         Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -600,5 +601,17 @@ private fun RecordButton(onQuickNote: () -> Unit, onLongRecording: () -> Unit) {
         ) {
             Icon(Icons.Filled.Mic, contentDescription = null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
+    }
+}
+
+/** "📅 Board meeting": this task's reminder follows that calendar event. */
+@Composable
+private fun EventLabel(eventTitle: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Icon(Icons.Filled.Event, contentDescription = "Before the event", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            eventTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

@@ -1,6 +1,9 @@
 package app.instantrecorder.ui
 
+import android.Manifest
 import android.media.MediaPlayer
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,35 +66,53 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.instantrecorder.Notifications
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.tasks.Calendars
 import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.EventLink
+import app.instantrecorder.tasks.EventRequest
+import app.instantrecorder.tasks.EventTiming
 import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskIntents
 import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.tasks.rule
 import app.instantrecorder.transcribe.WhisperModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** A suggested task while it's being edited on the review screen. */
-private class EditableTask(title: String, due: Due?, selected: Boolean, categoryId: Long?, repeatDays: Int = Repeat.NONE) {
+private class EditableTask(
+    title: String, due: Due?, selected: Boolean, categoryId: Long?, repeatDays: Int = Repeat.NONE,
+    /** What was said ("3 days before the board meeting"), resolved against the calendar when allowed. */
+    val event: EventRequest? = null,
+) {
     var title by mutableStateOf(title)
     var due by mutableStateOf(due)
     var selected by mutableStateOf(selected)
     var categoryId by mutableStateOf(categoryId)
     var repeatDays by mutableIntStateOf(repeatDays)
+    var link by mutableStateOf<EventLink?>(null)
+    var eventLookedUp by mutableStateOf(false)
     var saved by mutableStateOf(false)
 
-    fun toSuggestion() = TaskSuggestion(title.trim(), due, actionable = true, categoryId = categoryId, repeatDays = repeatDays)
+    fun toSuggestion() = TaskSuggestion(
+        title.trim(), due, actionable = true, categoryId = categoryId, repeatDays = repeatDays,
+        event = link?.let { EventRequest(it.event.title, it.offsetMinutes, event?.phrase.orEmpty()) } ?: event,
+        linkedEvent = link?.event,
+    )
 }
 
 private fun editableFrom(suggestions: List<TaskSuggestion>) =
-    suggestions.map { EditableTask(it.title, it.due, it.actionable || suggestions.size == 1, it.categoryId, it.repeatDays) }.toMutableStateList()
+    suggestions.map { EditableTask(it.title, it.due, it.actionable || suggestions.size == 1, it.categoryId, it.repeatDays, it.event) }
+        .toMutableStateList()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,6 +131,23 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
     val categories by vm.categories.collectAsStateWithLifecycle()
     val rules = remember(categories) { categories.map { it.rule() } }
     val tasks = remember(recordingId, transcript, rules) { editableFrom(TaskExtractor.extract(transcript.orEmpty(), categories = rules)) }
+    // "…before the board meeting": find the event in the calendar (once allowed) and date the task from it.
+    var calendarAllowed by remember { mutableStateOf(Calendars.hasPermission(context)) }
+    val calendarPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { calendarAllowed = it }
+    LaunchedEffect(tasks, calendarAllowed) {
+        if (!calendarAllowed) return@LaunchedEffect
+        val zone = java.time.ZoneId.systemDefault()
+        for (t in tasks) {
+            val request = t.event ?: continue
+            if (t.link != null || t.eventLookedUp) continue
+            val found = withContext(Dispatchers.IO) { Calendars.find(context, request.query) }
+            t.eventLookedUp = true
+            if (found != null) {
+                t.link = EventLink(found, request.offsetMinutes)
+                t.due = EventTiming.due(found, request.offsetMinutes, zone)
+            }
+        }
+    }
     val selected = tasks.filter { it.selected && !it.saved && it.title.isNotBlank() }
 
     Scaffold(
@@ -211,7 +249,13 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
                         }) { Text("Make one task") }
                     }
                 }
-                items(tasks) { task -> TaskEditorCard(task, categories, onRemove = { tasks.remove(task) }) }
+                items(tasks) { task ->
+                    TaskEditorCard(
+                        task, categories, calendarAllowed,
+                        askCalendar = { calendarPermission.launch(Manifest.permission.READ_CALENDAR) },
+                        onRemove = { tasks.remove(task) },
+                    )
+                }
                 item {
                     TextButton(onClick = { tasks.add(EditableTask("", null, selected = true, categoryId = null)) }, Modifier.padding(horizontal = 8.dp)) {
                         Icon(Icons.Filled.Add, null)
@@ -277,8 +321,11 @@ private fun TranscriptEditor(transcript: String, onSave: (String) -> Unit) {
 }
 
 @Composable
-private fun TaskEditorCard(task: EditableTask, categories: List<Category>, onRemove: () -> Unit) {
+private fun TaskEditorCard(
+    task: EditableTask, categories: List<Category>, calendarAllowed: Boolean, askCalendar: () -> Unit, onRemove: () -> Unit,
+) {
     var pickingDue by remember { mutableStateOf(false) }
+    var pickingEvent by remember { mutableStateOf(false) }
     var pickingCategory by remember { mutableStateOf(false) }
     val category = categories.firstOrNull { it.id == task.categoryId }
     Card(
@@ -345,6 +392,41 @@ private fun TaskEditorCard(task: EditableTask, categories: List<Category>, onRem
                 }
             }
         }
+        val request = task.event
+        if (request != null || task.link != null) {
+            Row(Modifier.padding(start = 56.dp, bottom = 8.dp)) {
+                val link = task.link
+                AssistChip(
+                    onClick = { if (!calendarAllowed) askCalendar() else pickingEvent = true },
+                    enabled = !task.saved,
+                    leadingIcon = { Icon(Icons.Filled.Event, null) },
+                    label = {
+                        Text(
+                            when {
+                                link != null -> "${EventTiming.describe(link.offsetMinutes)} ${link.event.title}"
+                                !calendarAllowed -> "Find \"${request?.query}\" in your calendar"
+                                task.eventLookedUp -> "\"${request?.query}\" not in calendar · pick"
+                                else -> "Looking up \"${request?.query}\"…"
+                            },
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    },
+                )
+            }
+        }
+    }
+    if (pickingEvent) {
+        EventPickerDialog(
+            initialQuery = task.link?.event?.title ?: task.event?.query.orEmpty(),
+            initialOffsetMinutes = task.link?.offsetMinutes ?: task.event?.offsetMinutes ?: EventTiming.DAY,
+            onDismiss = { pickingEvent = false },
+            onPick = { picked ->
+                task.link = picked
+                task.due = EventTiming.due(picked.event, picked.offsetMinutes, java.time.ZoneId.systemDefault())
+                task.repeatDays = Repeat.NONE
+                pickingEvent = false
+            },
+        )
     }
     if (pickingDue) {
         DuePickerDialog(

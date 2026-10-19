@@ -20,14 +20,20 @@ object TaskStore {
     suspend fun save(context: Context, recordingId: Long?, suggestions: List<TaskSuggestion>, notes: String?): List<TaskItem> {
         val app = context.app
         val items = suggestions.map {
+            val linked = it.linkedEvent
             TaskItem(
-                title = it.title,
+                // Not found in the calendar: keep what was said, so the task still makes sense.
+                title = if (it.event != null && linked == null) "${it.title} (${it.event.phrase})" else it.title,
                 notes = notes,
                 dueAt = it.due?.epochMillis,
                 dueHasTime = it.due?.hasTime ?: false,
                 recordingId = recordingId,
                 categoryId = it.categoryId,
                 repeatDays = it.repeatDays,
+                eventId = linked?.eventId,
+                eventTitle = linked?.title,
+                eventBegin = linked?.begin,
+                eventOffsetMinutes = it.event?.offsetMinutes?.takeIf { linked != null },
             )
         }
         val ids = app.db.tasks().insertAll(items)
@@ -75,12 +81,16 @@ object TaskStore {
      * Applies edits to the task as it is in the database now (a reminder's "Done" may have changed it
      * while the editor was open), then re-arms or cancels its reminder for the new due date.
      */
-    suspend fun edit(context: Context, taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int) {
+    suspend fun edit(
+        context: Context, taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int,
+        link: EventLink?,
+    ) {
         val dao = context.app.db.tasks()
         val current = dao.get(taskId) ?: return
         val updated = current.copy(
             title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false, categoryId = categoryId,
-            repeatDays = repeatDays,
+            repeatDays = repeatDays, eventId = link?.event?.eventId, eventTitle = link?.event?.title,
+            eventBegin = link?.event?.begin, eventOffsetMinutes = link?.offsetMinutes,
         )
         dao.update(updated)
         Reminders.schedule(context, updated)
@@ -94,6 +104,28 @@ object TaskStore {
 }
 
 fun Category.rule() = CategoryRule(id, name, keywordList)
+
+/** A task's tie to a calendar event: which occurrence, and how long before it to be reminded. */
+data class EventLink(val event: EventRef, val offsetMinutes: Int)
+
+/** The link stored on [this] task, if any. */
+val TaskItem.eventLink: EventLink?
+    get() = if (eventId != null && eventBegin != null && eventOffsetMinutes != null) {
+        EventLink(EventRef(eventId, eventTitle.orEmpty(), eventBegin, allDay = false), eventOffsetMinutes)
+    } else {
+        null
+    }
+
+/** Fills in each suggestion's calendar event (when allowed and found) and the due date that follows from it. */
+fun List<TaskSuggestion>.withCalendarEvents(context: Context): List<TaskSuggestion> {
+    if (none { it.event != null } || !Calendars.hasPermission(context)) return this
+    val zone = java.time.ZoneId.systemDefault()
+    return map { s ->
+        val request = s.event ?: return@map s
+        val event = Calendars.find(context, request.query) ?: return@map s
+        s.copy(linkedEvent = event, due = EventTiming.due(event, request.offsetMinutes, zone))
+    }
+}
 
 /** Hand-offs to other apps. Neither needs a permission. */
 object TaskIntents {
@@ -179,6 +211,7 @@ class TaskActionReceiver : BroadcastReceiver() {
                 val recording = db.recordings().get(recordingId) ?: return
                 val transcript = recording.transcript ?: return
                 val suggestions = TaskExtractor.extract(transcript, categories = db.categories().all().map { it.rule() })
+                    .withCalendarEvents(context)
                 val chosen = suggestions.filter { it.actionable }.ifEmpty { suggestions }
                 val saved = TaskStore.save(context, recordingId, chosen, transcript)
                 Notifications.showSaved(context, recordingId, saved)
@@ -187,6 +220,7 @@ class TaskActionReceiver : BroadcastReceiver() {
                 val task = db.tasks().get(intent.getLongExtra(EXTRA_TASK_ID, -1)) ?: return
                 TaskStore.complete(context, task)
             }
+            ACTION_SYNC_EVENTS -> EventSync.refresh(context)
             ACTION_REMIND -> {
                 val task = db.tasks().get(intent.getLongExtra(EXTRA_TASK_ID, -1)) ?: return
                 if (!task.done) Notifications.showReminder(context, task)
@@ -199,6 +233,7 @@ class TaskActionReceiver : BroadcastReceiver() {
         const val ACTION_SAVE_ALL = "app.instantrecorder.action.SAVE_ALL"
         const val ACTION_MARK_DONE = "app.instantrecorder.action.MARK_DONE"
         const val ACTION_REMIND = "app.instantrecorder.action.REMIND"
+        const val ACTION_SYNC_EVENTS = "app.instantrecorder.action.SYNC_EVENTS"
         const val EXTRA_RECORDING_ID = "recordingId"
         const val EXTRA_TASK_ID = "taskId"
 
@@ -214,6 +249,8 @@ class BootReceiver : BroadcastReceiver() {
         context.app.appScope.launch {
             try {
                 context.app.db.tasks().openWithDueDate().forEach { Reminders.schedule(context, it) }
+                EventSync.scheduleDaily(context)
+                EventSync.refresh(context)
             } finally {
                 pending.finish()
             }

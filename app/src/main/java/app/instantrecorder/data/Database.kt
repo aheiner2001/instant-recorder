@@ -45,6 +45,11 @@ data class TaskItem(
     val categoryId: Long? = null,
     /** Weekly repeat days (see tasks.Repeat); 0 = one-off. Only the open occurrence carries it. */
     @ColumnInfo(defaultValue = "0") val repeatDays: Int = 0,
+    /** Reminder tied to a calendar event: the event, the occurrence's start, and how long before it. */
+    val eventId: Long? = null,
+    val eventTitle: String? = null,
+    val eventBegin: Long? = null,
+    val eventOffsetMinutes: Int? = null,
 )
 
 @Entity(tableName = "categories")
@@ -121,6 +126,9 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE done = 0 AND dueAt IS NOT NULL")
     suspend fun openWithDueDate(): List<TaskItem>
 
+    @Query("SELECT * FROM tasks WHERE done = 0 AND eventId IS NOT NULL")
+    suspend fun openLinkedToEvents(): List<TaskItem>
+
     @Query("UPDATE tasks SET categoryId = NULL WHERE categoryId = :categoryId")
     suspend fun clearCategory(categoryId: Long)
 }
@@ -146,7 +154,7 @@ interface CategoryDao {
     suspend fun delete(category: Category)
 }
 
-@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 3, exportSchema = false)
+@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recordings(): RecordingDao
     abstract fun tasks(): TaskDao
@@ -174,6 +182,16 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `repeatDays` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** v4 added reminders tied to calendar events. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventId` INTEGER")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventTitle` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventBegin` INTEGER")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventOffsetMinutes` INTEGER")
             }
         }
 
