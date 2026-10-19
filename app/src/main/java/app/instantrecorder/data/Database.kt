@@ -50,6 +50,8 @@ data class TaskItem(
     val eventTitle: String? = null,
     val eventBegin: Long? = null,
     val eventOffsetMinutes: Int? = null,
+    /** Repeat for every occurrence of the (repeating) event: checking it off creates the one for the next. */
+    @ColumnInfo(defaultValue = "0") val eventRepeats: Boolean = false,
 )
 
 @Entity(tableName = "categories")
@@ -154,7 +156,7 @@ interface CategoryDao {
     suspend fun delete(category: Category)
 }
 
-@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 4, exportSchema = false)
+@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recordings(): RecordingDao
     abstract fun tasks(): TaskDao
@@ -192,6 +194,13 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventTitle` TEXT")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventBegin` INTEGER")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventOffsetMinutes` INTEGER")
+            }
+        }
+
+        /** v5: event reminders that repeat for every occurrence. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `eventRepeats` INTEGER NOT NULL DEFAULT 0")
             }
         }
 

@@ -31,6 +31,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -188,13 +189,21 @@ fun TaskEditorSheet(
             if (linked != null) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Filled.Event, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                    Text(
-                        "${EventTiming.describe(linked.offsetMinutes)} ${linked.event.title}",
-                        Modifier.weight(1f).padding(start = 8.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Text(linked.describe(), Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
                     TextButton(onClick = { pickingEvent = true }) { Text("Change") }
                     IconButton(onClick = { link = null }) { Icon(Icons.Filled.Close, "Remove event reminder") }
+                }
+                if (linked.event.recurring) {
+                    // A repeating event: one task for the next meeting only, or a new one for each meeting.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (linked.everyTime) "A new task for every occurrence" else "Only for the next occurrence",
+                            Modifier.weight(1f).padding(start = 26.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text("Every time", Modifier.padding(end = 8.dp), style = MaterialTheme.typography.labelLarge)
+                        Switch(checked = linked.everyTime, onCheckedChange = { link = linked.copy(everyTime = it) })
+                    }
                 }
             } else {
                 TextButton(onClick = { pickingEvent = true }) {

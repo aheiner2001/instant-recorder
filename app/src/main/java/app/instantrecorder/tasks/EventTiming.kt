@@ -5,8 +5,11 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZoneOffset
 
-/** "3 days before Sarah's birthday", as said: [query] is the event to look up, [phrase] the words used. */
-data class EventRequest(val query: String, val offsetMinutes: Int, val phrase: String)
+/**
+ * "3 days before Sarah's birthday", as said: [query] is the event to look up, [phrase] the words used.
+ * [everyTime]: "…before every/each board meeting" — a new task for each occurrence of a repeating event.
+ */
+data class EventRequest(val query: String, val offsetMinutes: Int, val phrase: String, val everyTime: Boolean = false)
 
 /** One calendar occurrence a task can be tied to. All-day events start at UTC midnight (CalendarContract's rule). */
 data class EventRef(

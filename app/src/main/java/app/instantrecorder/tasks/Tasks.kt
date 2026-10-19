@@ -34,6 +34,7 @@ object TaskStore {
                 eventTitle = linked?.title,
                 eventBegin = linked?.begin,
                 eventOffsetMinutes = it.event?.offsetMinutes?.takeIf { linked != null },
+                eventRepeats = it.event?.everyTime == true && linked?.recurring == true,
             )
         }
         val ids = app.db.tasks().insertAll(items)
@@ -49,14 +50,33 @@ object TaskStore {
      */
     suspend fun complete(context: Context, task: TaskItem): TaskItem? {
         setDone(context, task, true)
-        if (task.repeatDays == Repeat.NONE) return null
-        val due = Repeat.next(task.repeatDays, task.dueAt?.let { Due(it, task.dueHasTime) }, ZonedDateTime.now())
-        val next = task.copy(
-            id = 0, done = false, createdAt = System.currentTimeMillis(), dueAt = due.epochMillis, dueHasTime = due.hasTime,
-        )
+        val next = when {
+            task.eventRepeats -> nextForEvent(context, task) ?: return null
+            task.repeatDays != Repeat.NONE -> {
+                val due = Repeat.next(task.repeatDays, task.dueAt?.let { Due(it, task.dueHasTime) }, ZonedDateTime.now())
+                task.copy(id = 0, done = false, createdAt = System.currentTimeMillis(), dueAt = due.epochMillis, dueHasTime = due.hasTime)
+            }
+            else -> return null
+        }
         val saved = next.copy(id = context.app.db.tasks().insertAll(listOf(next)).single())
         Reminders.schedule(context, saved)
         return saved
+    }
+
+    /**
+     * The task for the event's next upcoming occurrence (after this one and after now, so finishing late
+     * doesn't create tasks for meetings already past). Null if the series ended or the calendar isn't readable.
+     */
+    private fun nextForEvent(context: Context, task: TaskItem): TaskItem? {
+        val eventId = task.eventId ?: return null
+        val offset = task.eventOffsetMinutes ?: return null
+        val after = maxOf(task.eventBegin ?: 0, System.currentTimeMillis()) + 60_000
+        val event = Calendars.nextOccurrence(context, eventId, after) ?: return null
+        val due = EventTiming.due(event, offset, java.time.ZoneId.systemDefault())
+        return task.copy(
+            id = 0, done = false, createdAt = System.currentTimeMillis(), dueAt = due.epochMillis, dueHasTime = due.hasTime,
+            eventBegin = event.begin, eventTitle = event.title,
+        )
     }
 
     /** Undoes [complete]: reopens [task] as it was and removes the occurrence it created. */
@@ -71,7 +91,7 @@ object TaskStore {
 
     suspend fun setDone(context: Context, task: TaskItem, done: Boolean) {
         // A completed occurrence stops repeating; its successor carries the repeat on.
-        val updated = if (done) task.copy(done = true, repeatDays = Repeat.NONE) else task.copy(done = false)
+        val updated = if (done) task.copy(done = true, repeatDays = Repeat.NONE, eventRepeats = false) else task.copy(done = false)
         context.app.db.tasks().update(updated)
         if (done) Reminders.cancel(context, task.id) else Reminders.schedule(context, updated)
         Notifications.cancelReminder(context, task.id)
@@ -90,7 +110,7 @@ object TaskStore {
         val updated = current.copy(
             title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false, categoryId = categoryId,
             repeatDays = repeatDays, eventId = link?.event?.eventId, eventTitle = link?.event?.title,
-            eventBegin = link?.event?.begin, eventOffsetMinutes = link?.offsetMinutes,
+            eventBegin = link?.event?.begin, eventOffsetMinutes = link?.offsetMinutes, eventRepeats = link?.everyTime == true,
         )
         dao.update(updated)
         Reminders.schedule(context, updated)
@@ -105,13 +125,19 @@ object TaskStore {
 
 fun Category.rule() = CategoryRule(id, name, keywordList)
 
-/** A task's tie to a calendar event: which occurrence, and how long before it to be reminded. */
-data class EventLink(val event: EventRef, val offsetMinutes: Int)
+/**
+ * A task's tie to a calendar event: which occurrence, how long before it to be reminded, and whether a new
+ * task follows for every occurrence ([everyTime], only meaningful for repeating events).
+ */
+data class EventLink(val event: EventRef, val offsetMinutes: Int, val everyTime: Boolean = false) {
+    fun describe() = "${EventTiming.describe(offsetMinutes)} ${if (everyTime) "every " else ""}${event.title}"
+}
 
 /** The link stored on [this] task, if any. */
 val TaskItem.eventLink: EventLink?
     get() = if (eventId != null && eventBegin != null && eventOffsetMinutes != null) {
-        EventLink(EventRef(eventId, eventTitle.orEmpty(), eventBegin, allDay = false), eventOffsetMinutes)
+        // Only repeating events can repeat, so a stored "every time" also tells us the event repeats.
+        EventLink(EventRef(eventId, eventTitle.orEmpty(), eventBegin, allDay = false, recurring = eventRepeats), eventOffsetMinutes, eventRepeats)
     } else {
         null
     }

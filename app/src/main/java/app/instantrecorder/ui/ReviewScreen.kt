@@ -40,6 +40,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -105,7 +106,7 @@ private class EditableTask(
 
     fun toSuggestion() = TaskSuggestion(
         title.trim(), due, actionable = true, categoryId = categoryId, repeatDays = repeatDays,
-        event = link?.let { EventRequest(it.event.title, it.offsetMinutes, event?.phrase.orEmpty()) } ?: event,
+        event = link?.let { EventRequest(it.event.title, it.offsetMinutes, event?.phrase.orEmpty(), it.everyTime) } ?: event,
         linkedEvent = link?.event,
     )
 }
@@ -143,7 +144,7 @@ fun ReviewScreen(vm: MainViewModel, recordingId: Long) {
             val found = withContext(Dispatchers.IO) { Calendars.find(context, request.query) }
             t.eventLookedUp = true
             if (found != null) {
-                t.link = EventLink(found, request.offsetMinutes)
+                t.link = EventLink(found, request.offsetMinutes, everyTime = request.everyTime && found.recurring)
                 t.due = EventTiming.due(found, request.offsetMinutes, zone)
             }
         }
@@ -394,8 +395,16 @@ private fun TaskEditorCard(
         }
         val request = task.event
         if (request != null || task.link != null) {
-            Row(Modifier.padding(start = 56.dp, bottom = 8.dp)) {
+            Row(Modifier.padding(start = 56.dp, bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val link = task.link
+                if (link != null && link.event.recurring) {
+                    FilterChip(
+                        selected = link.everyTime,
+                        onClick = { task.link = link.copy(everyTime = !link.everyTime) },
+                        enabled = !task.saved,
+                        label = { Text("Every time") },
+                    )
+                }
                 AssistChip(
                     onClick = { if (!calendarAllowed) askCalendar() else pickingEvent = true },
                     enabled = !task.saved,
@@ -403,7 +412,7 @@ private fun TaskEditorCard(
                     label = {
                         Text(
                             when {
-                                link != null -> "${EventTiming.describe(link.offsetMinutes)} ${link.event.title}"
+                                link != null -> link.describe()
                                 !calendarAllowed -> "Find \"${request?.query}\" in your calendar"
                                 task.eventLookedUp -> "\"${request?.query}\" not in calendar · pick"
                                 else -> "Looking up \"${request?.query}\"…"
@@ -421,7 +430,7 @@ private fun TaskEditorCard(
             initialOffsetMinutes = task.link?.offsetMinutes ?: task.event?.offsetMinutes ?: EventTiming.DAY,
             onDismiss = { pickingEvent = false },
             onPick = { picked ->
-                task.link = picked
+                task.link = picked.copy(everyTime = picked.event.recurring && (task.event?.everyTime ?: false))
                 task.due = EventTiming.due(picked.event, picked.offsetMinutes, java.time.ZoneId.systemDefault())
                 task.repeatDays = Repeat.NONE
                 pickingEvent = false

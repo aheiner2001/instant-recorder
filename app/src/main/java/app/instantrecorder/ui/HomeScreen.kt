@@ -485,7 +485,7 @@ private fun TaskRow(
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     category?.let { CategoryLabel(it) }
                     if (task.repeatDays != Repeat.NONE) RepeatLabel(task.repeatDays)
-                    task.eventTitle?.let { EventLabel(it) }
+                    task.eventTitle?.let { EventLabel(if (task.eventRepeats) "Every $it" else it) }
                     due?.let {
                         Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
                     }

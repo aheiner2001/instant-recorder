@@ -182,7 +182,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setTaskDone(task: TaskItem, done: Boolean) {
         viewModelScope.launch {
-            if (done && task.repeatDays != Repeat.NONE) {
+            if (done && (task.repeatDays != Repeat.NONE || task.eventRepeats)) {
                 pendingUndoables.send(Completion(task, TaskStore.complete(context, task)))
             } else {
                 TaskStore.setDone(context, task, done)
@@ -195,7 +195,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val task = TaskSuggestion(
                 title, due, actionable = true, categoryId = categoryId, repeatDays = repeatDays,
-                event = link?.let { EventRequest(it.event.title, it.offsetMinutes, "") }, linkedEvent = link?.event,
+                event = link?.let { EventRequest(it.event.title, it.offsetMinutes, "", it.everyTime) }, linkedEvent = link?.event,
             )
             TaskStore.save(context, recordingId = null, listOf(task), notes)
         }

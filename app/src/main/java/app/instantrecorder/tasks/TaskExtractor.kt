@@ -149,9 +149,12 @@ object TaskExtractor {
                 else -> 1
             }
         }
-        val query = m.groupValues[4].trim().trimEnd('.', '!', '?', ',', ';')
+        var query = m.groupValues[4].trim().trimEnd('.', '!', '?', ',', ';')
+        val every = EVERY_PREFIX.find(query)
+        if (every != null) query = query.substring(every.range.last + 1)
         if (query.isBlank() || offset <= 0) return null to text
-        return EventRequest(query, offset, m.value.trim().trimEnd('.', '!', '?', ',', ';')) to text.removeRange(m.range)
+        return EventRequest(query, offset, m.value.trim().trimEnd('.', '!', '?', ',', ';'), everyTime = every != null) to
+            text.removeRange(m.range)
     }
 
     /**
@@ -209,6 +212,8 @@ object TaskExtractor {
         """\b(?:(\d+|a couple of|a few|an?|one|two|three|four|five|six|seven|eight|nine|ten)\s+(minutes?|mins?|hours?|days?|weeks?)|the\s+(day|night|evening|morning|week))\s+before\s+(.+)$""",
         RegexOption.IGNORE_CASE,
     )
+
+    private val EVERY_PREFIX = Regex("""^(?:every|each)\s+(?:single\s+)?""", RegexOption.IGNORE_CASE)
 
     private val DAY = "(?:mon|tues|wednes|thurs|fri|satur|sun)days?"
     private val DAY_NAME = Regex(DAY, RegexOption.IGNORE_CASE)

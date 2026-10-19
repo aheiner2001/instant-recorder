@@ -205,6 +205,14 @@ class TaskExtractorTest {
     }
 
     @Test
+    fun `before every occurrence of an event`() {
+        val t = extract("Send the meeting agenda a week before every ward council").single()
+        assertEquals("Send the meeting agenda", t.title)
+        assertEquals(EventRequest("ward council", EventTiming.WEEK, "a week before every ward council", everyTime = true), t.event)
+        assertEquals(false, extract("Send the agenda a week before the ward council").single().event!!.everyTime)
+    }
+
+    @Test
     fun `before a plain date is not an event`() {
         assertNull(extract("Pay the rent before Friday").single().event)
     }
