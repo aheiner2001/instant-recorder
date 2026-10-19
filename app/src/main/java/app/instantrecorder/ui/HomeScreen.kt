@@ -58,6 +58,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Mic
@@ -184,9 +185,9 @@ fun HomeScreen(vm: MainViewModel) {
             isNew = isNew,
             canOpenRecording = recordings.any { it.id == task.recordingId },
             onDismiss = { editingTaskId = null },
-            onSave = { title, notes, due, categoryId, repeatDays, link ->
-                if (isNew) vm.addTask(title, notes, due, categoryId, repeatDays, link)
-                else vm.editTask(task.id, title, notes, due, categoryId, repeatDays, link)
+            onSave = { title, notes, due, categoryId, repeatDays, link, important ->
+                if (isNew) vm.addTask(title, notes, due, categoryId, repeatDays, link, important)
+                else vm.editTask(task.id, title, notes, due, categoryId, repeatDays, link, important)
                 editingTaskId = null
             },
             onDelete = {
@@ -486,10 +487,15 @@ private fun TaskRow(
                 // Wraps to a second line instead of squeezing a label to one character per line.
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     due?.let {
-                        Text(
-                            it.label(), maxLines = 1,
-                            color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (task.important) {
+                                Icon(Icons.Filled.Alarm, "Important", Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
+                            }
+                            Text(
+                                it.label(), maxLines = 1,
+                                color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     category?.let { CategoryLabel(it) }
                     if (task.repeatDays != Repeat.NONE) RepeatLabel(task.repeatDays)

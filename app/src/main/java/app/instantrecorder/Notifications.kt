@@ -7,6 +7,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.instantrecorder.data.Recording
@@ -16,12 +18,14 @@ import app.instantrecorder.recording.RecordingService
 import app.instantrecorder.tasks.Due
 import app.instantrecorder.tasks.TaskActionReceiver
 import app.instantrecorder.tasks.TaskSuggestion
+import app.instantrecorder.ui.AlarmActivity
 import app.instantrecorder.ui.MainActivity
 
 object Notifications {
     private const val CHANNEL_RECORDING = "recording"
     private const val CHANNEL_RESULTS = "results"
     private const val CHANNEL_REMINDERS = "reminders"
+    private const val CHANNEL_ALARMS = "alarms"
 
     const val ID_SERVICE = 1
     private const val RECORDING_RED = 0xFFD32F2F.toInt()
@@ -42,6 +46,17 @@ object Notifications {
                 },
                 NotificationChannel(CHANNEL_REMINDERS, "Task reminders", NotificationManager.IMPORTANCE_HIGH).apply {
                     description = "Reminders for tasks with a due time"
+                },
+                // Alarm sound + alarm usage: Do Not Disturb lets alarms through by default.
+                NotificationChannel(CHANNEL_ALARMS, "Important reminders", NotificationManager.IMPORTANCE_HIGH).apply {
+                    description = "Tasks marked Important: ring like an alarm, even in Do Not Disturb"
+                    setSound(
+                        RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
+                        AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build(),
+                    )
+                    enableVibration(true)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 },
             )
         )
@@ -158,6 +173,35 @@ object Notifications {
             .build()
         notify(context, reminderId(task.id), n)
     }
+
+    /** An Important task's reminder: alarm sound once, and the full-screen alarm when the phone is locked. */
+    fun showAlarm(context: Context, task: TaskItem) {
+        val fullScreen = PendingIntent.getActivity(
+            context, task.id.toInt(), AlarmActivity.intent(context, task.id),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = NotificationCompat.Builder(context, CHANNEL_ALARMS)
+            .setSmallIcon(R.drawable.ic_check)
+            .setContentTitle(task.title)
+            .setContentText(task.dueAt?.let { Due(it, task.dueHasTime).label() })
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setFullScreenIntent(fullScreen, true)
+            .setContentIntent(fullScreen)
+            .setAutoCancel(true)
+            .addAction(R.drawable.ic_check, "Done", taskAction(context, task.id, TaskActionReceiver.ACTION_MARK_DONE))
+            .addAction(R.drawable.ic_mic, "Snooze 10 min", taskAction(context, task.id, TaskActionReceiver.ACTION_SNOOZE))
+            .build()
+        notify(context, reminderId(task.id), n)
+    }
+
+    private fun taskAction(context: Context, taskId: Long, action: String): PendingIntent =
+        PendingIntent.getBroadcast(
+            context, (action.hashCode() * 31 + taskId).toInt(),
+            TaskActionReceiver.intent(context, action).putExtra(TaskActionReceiver.EXTRA_TASK_ID, taskId),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
     /** Something needs the user's attention before recording/transcribing can work. */
     fun showProblem(context: Context, title: String, text: String) {

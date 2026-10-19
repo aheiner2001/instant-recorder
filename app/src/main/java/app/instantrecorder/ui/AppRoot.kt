@@ -1,10 +1,14 @@
 package app.instantrecorder.ui
 
+import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.text.format.DateFormat
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -193,6 +197,17 @@ fun Context.shareTasks(tasks: List<Pair<String, Due?>>) {
     Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show()
     launchSafely(TaskIntents.share(tasks))
 }
+
+/** Whether Important reminders can take over the locked screen (Android 14+ asks the user once). */
+fun canAlarmFullScreen(context: Context): Boolean =
+    Build.VERSION.SDK_INT < 34 || context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
+
+fun fullScreenSettingsIntent(context: Context): Intent =
+    if (Build.VERSION.SDK_INT >= 34) {
+        Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, Uri.parse("package:${context.packageName}"))
+    } else {
+        Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+    }
 
 /** Date first, then an optional time ("All day" keeps it date-only). */
 @OptIn(ExperimentalMaterial3Api::class)

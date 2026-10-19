@@ -35,6 +35,7 @@ object TaskStore {
                 eventBegin = linked?.begin,
                 eventOffsetMinutes = it.event?.offsetMinutes?.takeIf { linked != null },
                 eventRepeats = it.event?.everyTime == true && linked?.recurring == true,
+                important = it.important,
             )
         }
         val ids = app.db.tasks().insertAll(items)
@@ -103,7 +104,7 @@ object TaskStore {
      */
     suspend fun edit(
         context: Context, taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int,
-        link: EventLink?,
+        link: EventLink?, important: Boolean,
     ) {
         val dao = context.app.db.tasks()
         val current = dao.get(taskId) ?: return
@@ -111,6 +112,7 @@ object TaskStore {
             title = title, notes = notes, dueAt = due?.epochMillis, dueHasTime = due?.hasTime ?: false, categoryId = categoryId,
             repeatDays = repeatDays, eventId = link?.event?.eventId, eventTitle = link?.event?.title,
             eventBegin = link?.event?.begin, eventOffsetMinutes = link?.offsetMinutes, eventRepeats = link?.everyTime == true,
+            important = important,
         )
         dao.update(updated)
         Reminders.schedule(context, updated)
@@ -191,13 +193,23 @@ object Reminders {
             cancel(context, task.id)
             return
         }
+        setAlarm(context, task, at)
+    }
+
+    /** Ring again in [minutes], whatever the due date says. */
+    fun snooze(context: Context, task: TaskItem, minutes: Long = 10) =
+        setAlarm(context, task, System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(minutes))
+
+    private fun setAlarm(context: Context, task: TaskItem, at: Long) {
         val alarms = context.getSystemService(AlarmManager::class.java)
         val pending = pendingIntent(context, task.id)
-        // Exact alarms need the user's OK on Android 14+; otherwise Android may deliver a few minutes late.
-        if (alarms.canScheduleExactAlarms()) {
-            alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
-        } else {
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+        when {
+            // Important: an alarm clock alarm — exact even in deep sleep, shown as the next alarm.
+            task.important && alarms.canScheduleExactAlarms() ->
+                alarms.setAlarmClock(AlarmManager.AlarmClockInfo(at, openTasks(context)), pending)
+            // USE_EXACT_ALARM (a reminder app) normally allows this; otherwise Android may be a few minutes late.
+            alarms.canScheduleExactAlarms() -> alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
+            else -> alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending)
         }
     }
 
@@ -212,6 +224,9 @@ object Reminders {
             TaskActionReceiver.intent(context, TaskActionReceiver.ACTION_REMIND).putExtra(TaskActionReceiver.EXTRA_TASK_ID, taskId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+
+    private fun openTasks(context: Context): PendingIntent =
+        PendingIntent.getActivity(context, 0, app.instantrecorder.ui.MainActivity.intent(context), PendingIntent.FLAG_IMMUTABLE)
 }
 
 /** Notification buttons ("Save all", "Done") and reminder alarms. */
@@ -249,7 +264,13 @@ class TaskActionReceiver : BroadcastReceiver() {
             ACTION_SYNC_EVENTS -> EventSync.refresh(context)
             ACTION_REMIND -> {
                 val task = db.tasks().get(intent.getLongExtra(EXTRA_TASK_ID, -1)) ?: return
-                if (!task.done) Notifications.showReminder(context, task)
+                if (task.done) return
+                if (task.important) Notifications.showAlarm(context, task) else Notifications.showReminder(context, task)
+            }
+            ACTION_SNOOZE -> {
+                val task = db.tasks().get(intent.getLongExtra(EXTRA_TASK_ID, -1)) ?: return
+                Notifications.cancelReminder(context, task.id)
+                Reminders.snooze(context, task)
             }
         }
     }
@@ -260,6 +281,7 @@ class TaskActionReceiver : BroadcastReceiver() {
         const val ACTION_MARK_DONE = "app.instantrecorder.action.MARK_DONE"
         const val ACTION_REMIND = "app.instantrecorder.action.REMIND"
         const val ACTION_SYNC_EVENTS = "app.instantrecorder.action.SYNC_EVENTS"
+        const val ACTION_SNOOZE = "app.instantrecorder.action.SNOOZE"
         const val EXTRA_RECORDING_ID = "recordingId"
         const val EXTRA_TASK_ID = "taskId"
 

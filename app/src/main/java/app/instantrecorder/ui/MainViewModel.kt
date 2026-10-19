@@ -191,18 +191,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** A task typed in by hand, not from a recording. */
-    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?) {
+    fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?, important: Boolean) {
         viewModelScope.launch {
             val task = TaskSuggestion(
                 title, due, actionable = true, categoryId = categoryId, repeatDays = repeatDays,
                 event = link?.let { EventRequest(it.event.title, it.offsetMinutes, "", it.everyTime) }, linkedEvent = link?.event,
+                important = important,
             )
             TaskStore.save(context, recordingId = null, listOf(task), notes)
         }
     }
 
-    fun editTask(taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?) {
-        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId, repeatDays, link) }
+    fun editTask(
+        taskId: Long, title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?, important: Boolean,
+    ) {
+        viewModelScope.launch { TaskStore.edit(context, taskId, title, notes, due, categoryId, repeatDays, link, important) }
     }
 
     val categories: StateFlow<List<Category>> = graph.db.categories().observeAll()

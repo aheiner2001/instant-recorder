@@ -75,6 +75,7 @@ fun SettingsScreen(vm: MainViewModel) {
     val tick = rememberResumeTick()
     val triggerOn = remember(tick) { VolumeKeyTriggerService.isEnabled(context) }
     val exactAlarms = remember(tick) { context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms() }
+    val fullScreenAllowed = remember(tick) { canAlarmFullScreen(context) }
     val promotedAllowed = remember(tick) {
         Build.VERSION.SDK_INT < 36 || context.getSystemService(NotificationManager::class.java).canPostPromotedNotifications()
     }
@@ -345,6 +346,18 @@ fun SettingsScreen(vm: MainViewModel) {
             }
 
             SectionHeader("Reminders")
+            ListItem(
+                headlineContent = { Text("Full-screen alarms") },
+                supportingContent = {
+                    Text(
+                        if (fullScreenAllowed) "Allowed: Important reminders light up the locked screen."
+                        else "Not allowed: Important reminders only play the alarm sound."
+                    )
+                },
+                trailingContent = {
+                    if (!fullScreenAllowed) Button(onClick = { context.launchSafely(fullScreenSettingsIntent(context)) }) { Text("Allow") }
+                },
+            )
             ListItem(
                 headlineContent = { Text("Exact reminder times") },
                 supportingContent = {

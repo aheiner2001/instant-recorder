@@ -37,6 +37,7 @@ data class TaskSuggestion(
     val event: EventRequest? = null,
     /** The calendar event [event] was matched to; then [due] is computed from it. */
     val linkedEvent: EventRef? = null,
+    val important: Boolean = false,
 )
 
 /** A category as the extractor needs it: its name (spoken as "Work: …") and its keywords. */

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.Mic
@@ -48,6 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.TaskItem
@@ -74,7 +77,7 @@ fun TaskEditorSheet(
     isNew: Boolean,
     canOpenRecording: Boolean,
     onDismiss: () -> Unit,
-    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?) -> Unit,
+    onSave: (title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?, important: Boolean) -> Unit,
     onDelete: () -> Unit,
     onOpenRecording: () -> Unit,
 ) {
@@ -87,6 +90,7 @@ fun TaskEditorSheet(
     // Not saveable (EventRef isn't Parcelable); a fold mid-edit keeps the saved link, which is fine.
     var link by remember(task.id) { mutableStateOf(task.eventLink) }
     var pickingEvent by remember { mutableStateOf(false) }
+    var important by rememberSaveable(task.id) { mutableStateOf(task.important) }
     // Choosing repeat days moves the due date to the first matching day (keeping its time), if it isn't one.
     val onRepeatChange = { days: Int ->
         repeatDays = days
@@ -105,6 +109,8 @@ fun TaskEditorSheet(
     val due = dueAt?.let { Due(it, dueHasTime) }
     val titleFocus = remember { FocusRequester() }
     val context = LocalContext.current
+    var fullScreenAllowed by remember { mutableStateOf(canAlarmFullScreen(context)) }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { fullScreenAllowed = canAlarmFullScreen(context) }
     val dictation = rememberDictation()
     val rules = remember(categories) { categories.map { it.rule() } }
     // "Call the dentist tomorrow at 3 pm" → title, due date and (spoken or keyword) category.
@@ -145,7 +151,7 @@ fun TaskEditorSheet(
                 Text(if (isNew) "New task" else "Edit task", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
                 TextButton(onClick = onDismiss) { Text("Cancel") }
                 Button(
-                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId, repeatDays, link) },
+                    onClick = { onSave(title.trim(), notes.trim().ifEmpty { null }, due, categoryId, repeatDays, link, important) },
                     enabled = title.isNotBlank(),
                     modifier = Modifier.padding(start = 8.dp),
                 ) { Text("Save") }
@@ -210,6 +216,26 @@ fun TaskEditorSheet(
                     Icon(Icons.Filled.Event, null, Modifier.size(18.dp))
                     Text("Before an event…", Modifier.padding(start = 8.dp))
                 }
+            }
+            // Per task: only these ring through Do Not Disturb; every other reminder stays a normal notification.
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.Alarm, null, Modifier.size(18.dp), tint = if (important) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    Text("Important: ring through Do Not Disturb", style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        when {
+                            due == null -> "Add a date to get a reminder"
+                            important && !fullScreenAllowed -> "Alarm sound on. Allow full-screen alarms to also light up the locked screen."
+                            else -> "Alarm sound, and a full-screen alarm when the phone is locked"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = important, onCheckedChange = { important = it }, enabled = due != null || important)
+            }
+            if (important && !fullScreenAllowed) {
+                TextButton(onClick = { context.launchSafely(fullScreenSettingsIntent(context)) }) { Text("Allow full-screen alarms") }
             }
             OutlinedTextField(
                 value = notes,
