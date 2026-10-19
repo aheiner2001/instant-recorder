@@ -46,6 +46,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -482,13 +483,17 @@ private fun TaskRow(
         },
         supportingContent = if (due == null && category == null && task.repeatDays == Repeat.NONE && task.eventTitle == null) null else {
             {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Wraps to a second line instead of squeezing a label to one character per line.
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    due?.let {
+                        Text(
+                            it.label(), maxLines = 1,
+                            color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     category?.let { CategoryLabel(it) }
                     if (task.repeatDays != Repeat.NONE) RepeatLabel(task.repeatDays)
                     task.eventTitle?.let { EventLabel(if (task.eventRepeats) "Every $it" else it) }
-                    due?.let {
-                        Text(it.label(), color = if (overdue) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                 }
             }
         },
