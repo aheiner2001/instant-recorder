@@ -21,6 +21,8 @@ class NoteEntityTest {
         assertTrue("createdAt should be >= $before, was ${note.createdAt}", note.createdAt in before..after)
         assertTrue("updatedAt should be >= $before, was ${note.updatedAt}", note.updatedAt in before..after)
         assertNull(note.markdownPath)
+        assertEquals(false, note.pinned)
+        assertEquals("", note.tags)
     }
 
     @Test
@@ -32,7 +34,9 @@ class NoteEntityTest {
             categoryId = 7L,
             createdAt = 1000L,
             updatedAt = 2000L,
-            markdownPath = "/notes/custom.md"
+            markdownPath = "/notes/custom.md",
+            pinned = true,
+            tags = "work,urgent"
         )
 
         assertEquals(42L, note.id)
@@ -42,6 +46,8 @@ class NoteEntityTest {
         assertEquals(1000L, note.createdAt)
         assertEquals(2000L, note.updatedAt)
         assertEquals("/notes/custom.md", note.markdownPath)
+        assertEquals(true, note.pinned)
+        assertEquals("work,urgent", note.tags)
     }
 
     @Test
@@ -104,6 +110,56 @@ class NoteEntityTest {
         assertTrue(sql.contains("`createdAt` INTEGER NOT NULL"))
         assertTrue(sql.contains("`updatedAt` INTEGER NOT NULL"))
         assertTrue(sql.contains("`markdownPath` TEXT"))
+    }
+
+    @Test
+    fun `migration 7 to 8 has correct start and end versions`() {
+        assertEquals(7, AppDatabase.MIGRATION_7_8.startVersion)
+        assertEquals(8, AppDatabase.MIGRATION_7_8.endVersion)
+    }
+
+    @Test
+    fun `migration 7 to 8 executes alter table statements for pinned and tags`() {
+        val executedSql = mutableListOf<String>()
+        val db = java.lang.reflect.Proxy.newProxyInstance(
+            androidx.sqlite.db.SupportSQLiteDatabase::class.java.classLoader,
+            arrayOf(androidx.sqlite.db.SupportSQLiteDatabase::class.java)
+        ) { _, method, args ->
+            if (method.name == "execSQL" && args != null && args.isNotEmpty()) {
+                executedSql.add(args[0] as String)
+            }
+            null
+        } as androidx.sqlite.db.SupportSQLiteDatabase
+
+        AppDatabase.MIGRATION_7_8.migrate(db)
+
+        assertEquals(2, executedSql.size)
+        assertTrue(executedSql[0].contains("ALTER TABLE `notes` ADD COLUMN `pinned` INTEGER NOT NULL DEFAULT 0"))
+        assertTrue(executedSql[1].contains("ALTER TABLE `notes` ADD COLUMN `tags` TEXT NOT NULL DEFAULT ''"))
+    }
+
+    @Test
+    fun `note dao defines setPinned, setText, and getLatestToday methods and implementations exist`() {
+        val setPinnedMethod = NoteDao::class.java.methods.firstOrNull { it.name.startsWith("setPinned") }
+        assertNotNull("NoteDao should define setPinned method", setPinnedMethod)
+
+        val setTextMethod = NoteDao::class.java.methods.firstOrNull { it.name.startsWith("setText") }
+        assertNotNull("NoteDao should define setText method", setTextMethod)
+
+        val getLatestTodayMethod = NoteDao::class.java.methods.firstOrNull { it.name.startsWith("getLatestToday") }
+        assertNotNull("NoteDao should define getLatestToday method", getLatestTodayMethod)
+
+        val implClass = Class.forName("app.instantrecorder.data.NoteDao_Impl")
+        assertTrue("NoteDao_Impl must implement NoteDao", NoteDao::class.java.isAssignableFrom(implClass))
+
+        val implSetPinned = implClass.methods.firstOrNull { it.name.startsWith("setPinned") }
+        assertNotNull("NoteDao_Impl should implement setPinned method", implSetPinned)
+
+        val implSetText = implClass.methods.firstOrNull { it.name.startsWith("setText") }
+        assertNotNull("NoteDao_Impl should implement setText method", implSetText)
+
+        val implGetLatestToday = implClass.methods.firstOrNull { it.name.startsWith("getLatestToday") }
+        assertNotNull("NoteDao_Impl should implement getLatestToday method", implGetLatestToday)
     }
 
     @Test

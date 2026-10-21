@@ -1,5 +1,6 @@
 package app.instantrecorder.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Delete
 import androidx.room.Entity
@@ -17,7 +18,9 @@ data class NoteItem(
     val categoryId: Long? = null, // null = Unassigned
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
-    val markdownPath: String? = null
+    val markdownPath: String? = null,
+    @ColumnInfo(defaultValue = "0") val pinned: Boolean = false,
+    @ColumnInfo(defaultValue = "''") val tags: String = ""
 )
 
 @Dao
@@ -51,4 +54,13 @@ interface NoteDao {
 
     @Query("UPDATE notes SET categoryId = NULL WHERE categoryId = :categoryId")
     suspend fun clearCategory(categoryId: Long)
+
+    @Query("UPDATE notes SET pinned = :pinned, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM notes WHERE (categoryId IS NULL AND :categoryId IS NULL OR categoryId = :categoryId) AND createdAt >= :startOfDay ORDER BY createdAt DESC LIMIT 1")
+    suspend fun getLatestToday(categoryId: Long?, startOfDay: Long): NoteItem?
+
+    @Query("UPDATE notes SET text = :text, updatedAt = :updatedAt WHERE id = :id")
+    suspend fun setText(id: Long, text: String, updatedAt: Long = System.currentTimeMillis())
 }
