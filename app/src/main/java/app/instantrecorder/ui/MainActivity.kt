@@ -59,14 +59,20 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isQuickRecord(intent: Intent) =
-        intent.action == ACTION_QUICK_RECORD || intent.component?.className == QUICK_RECORD_ALIAS
+        isQuickRecord(intent.action, intent.component?.className)
 
     companion object {
         const val ACTION_QUICK_RECORD = "app.instantrecorder.action.QUICK_RECORD"
         const val EXTRA_RECORDING_ID = "recordingId"
 
         /** The manifest's activity-alias; named from the code namespace, not the app ID. */
-        private const val QUICK_RECORD_ALIAS = "app.instantrecorder.QuickRecord"
+        const val QUICK_RECORD_ALIAS = "app.instantrecorder.QuickRecord"
+
+        fun isQuickRecordIntent(action: String?): Boolean =
+            action == ACTION_QUICK_RECORD || action == Intent.ACTION_CREATE_NOTE
+
+        fun isQuickRecord(action: String?, componentClassName: String? = null): Boolean =
+            isQuickRecordIntent(action) || componentClassName == QUICK_RECORD_ALIAS
 
         fun intent(context: Context): Intent =
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)

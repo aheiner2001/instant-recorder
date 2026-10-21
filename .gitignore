@@ -12,3 +12,4 @@
 .claude/worktrees/
 *.jks
 *.keystore
+.superpowers/

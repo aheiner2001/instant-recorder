@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <capability android:name="actions.intent.CREATE_NOTE">
+        <intent
+            android:action="app.instantrecorder.action.QUICK_RECORD"
+            android:targetClass="app.instantrecorder.ui.MainActivity"
+            android:targetPackage="io.github.instantrecorder" />
+    </capability>
+
+    <capability android:name="actions.intent.RECORD_AUDIO">
+        <intent
+            android:action="app.instantrecorder.action.QUICK_RECORD"
+            android:targetClass="app.instantrecorder.ui.MainActivity"
+            android:targetPackage="io.github.instantrecorder" />
+    </capability>
+
     <shortcut
         android:enabled="true"
         android:icon="@mipmap/ic_quick_record"
