@@ -154,8 +154,8 @@ fun HomeScreen(vm: MainViewModel) {
     var isSelecting by rememberSaveable { mutableStateOf(false) }
     var selectedNoteIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
     var selectedRecordingIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-    var showMergeCategoryDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by rememberSaveable { mutableStateOf(false) }
+    var showMergeCategoryDialog by rememberSaveable { mutableStateOf(false) }
     var visibleNotes by remember { mutableStateOf(notes) }
 
     LaunchedEffect(notes) {

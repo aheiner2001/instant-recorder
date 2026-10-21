@@ -80,7 +80,7 @@ class MainViewModelBatchTest {
         assertTrue("OfMultipleNotes should be an Undoable", item is Undoable)
 
         val singleBatch = Deletion.OfMultipleNotes(listOf(sampleNotes.first()))
-        assertEquals("1 notes deleted", singleBatch.message)
+        assertEquals("1 note deleted", singleBatch.message)
     }
 
     @Test
@@ -95,6 +95,9 @@ class MainViewModelBatchTest {
 
         val pairBatch = Deletion.OfMultipleRecordings(sampleRecordings.take(2))
         assertEquals("2 recordings deleted", pairBatch.message)
+
+        val singleRecBatch = Deletion.OfMultipleRecordings(listOf(sampleRecordings.first()))
+        assertEquals("1 recording deleted", singleRecBatch.message)
     }
 
     @Test

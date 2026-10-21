@@ -64,11 +64,11 @@ sealed interface Deletion : Undoable {
     }
 
     data class OfMultipleNotes(val notes: List<NoteItem>) : Deletion {
-        override val message get() = "${notes.size} notes deleted"
+        override val message get() = if (notes.size == 1) "1 note deleted" else "${notes.size} notes deleted"
     }
 
     data class OfMultipleRecordings(val recordings: List<Recording>) : Deletion {
-        override val message get() = "${recordings.size} recordings deleted"
+        override val message get() = if (recordings.size == 1) "1 recording deleted" else "${recordings.size} recordings deleted"
     }
 }
 
