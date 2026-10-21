@@ -697,6 +697,7 @@ private fun RecordingRow(
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .clip(CardDefaults.shape)
             .combinedClickable(
                 onClick = { if (isSelecting) onToggleSelect() else onClick() },
                 onLongClick = onStartSelect,
