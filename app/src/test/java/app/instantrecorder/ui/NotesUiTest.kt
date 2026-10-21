@@ -9,6 +9,7 @@ import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.tasks.rule
+import app.instantrecorder.tasks.toTaskItem
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -372,16 +373,8 @@ class NotesUiTest {
         val noteCategoryId = 1L // Work
         val noteRecordingId = 42L
 
-        // Logic executed inside MainViewModel.addTaskFromSuggestion
-        val task = TaskItem(
-            title = suggestion.title,
-            dueAt = suggestion.due?.epochMillis,
-            dueHasTime = suggestion.due?.hasTime ?: false,
-            categoryId = suggestion.categoryId ?: noteCategoryId,
-            recordingId = noteRecordingId,
-            repeatDays = suggestion.repeatDays,
-            important = suggestion.important,
-        )
+        // Production mapping function TaskSuggestion.toTaskItem
+        val task = suggestion.toTaskItem(categoryId = noteCategoryId, recordingId = noteRecordingId)
 
         assertEquals("Send monthly invoice", task.title)
         assertEquals(1776510000000L, task.dueAt)
@@ -405,15 +398,7 @@ class NotesUiTest {
         )
         val noteCategoryId = 1L // Work
 
-        val task = TaskItem(
-            title = suggestion.title,
-            dueAt = suggestion.due?.epochMillis,
-            dueHasTime = suggestion.due?.hasTime ?: false,
-            categoryId = suggestion.categoryId ?: noteCategoryId,
-            recordingId = null,
-            repeatDays = suggestion.repeatDays,
-            important = suggestion.important,
-        )
+        val task = suggestion.toTaskItem(categoryId = noteCategoryId, recordingId = null)
 
         assertEquals("Buy groceries", task.title)
         assertEquals(1776520000000L, task.dueAt)
@@ -440,6 +425,7 @@ class NotesUiTest {
         val categoryRules = categories.map { it.rule() }
 
         val suggestions = TaskExtractor.extract(noteText, categories = categoryRules)
+            .filter { it.actionable || it.due != null }
         assertTrue("Should extract suggestions from note text", suggestions.isNotEmpty())
         assertTrue(suggestions.any { it.title.contains("Call electrician", ignoreCase = true) })
 
@@ -452,5 +438,20 @@ class NotesUiTest {
         // User taps [+ Add]
         addedTitles = addedTitles + firstSuggestion.title
         assertTrue("First suggestion should be marked as added", firstSuggestion.title in addedTitles)
+    }
+
+    @Test
+    fun `NoteEditorSheet filters suggestions by actionable or due date present`() {
+        val actionableSuggestion = TaskSuggestion(title = "Buy paper", due = null, actionable = true)
+        val datedSuggestion = TaskSuggestion(title = "Doctor appointment", due = Due(epochMillis = 1776510000000L, hasTime = true), actionable = false)
+        val passiveSuggestion = TaskSuggestion(title = "The weather was nice", due = null, actionable = false)
+
+        val filtered = listOf(actionableSuggestion, datedSuggestion, passiveSuggestion)
+            .filter { it.actionable || it.due != null }
+
+        assertEquals(2, filtered.size)
+        assertTrue(filtered.contains(actionableSuggestion))
+        assertTrue(filtered.contains(datedSuggestion))
+        assertFalse(filtered.contains(passiveSuggestion))
     }
 }

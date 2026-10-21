@@ -58,8 +58,8 @@ fun NoteEditorSheet(
     onAddTask: (TaskSuggestion) -> Unit = {},
 ) {
     var text by rememberSaveable(note.id) { mutableStateOf(note.text) }
-    val suggestions = remember(text, categories) { TaskExtractor.extract(text, categories = categories.map { it.rule() }) }
-    var addedTitles by rememberSaveable { mutableStateOf(setOf<String>()) }
+    val suggestions = remember(text, categories) { TaskExtractor.extract(text, categories = categories.map { it.rule() }).filter { it.actionable || it.due != null } }
+    var addedTitles by rememberSaveable(note.id) { mutableStateOf(setOf<String>()) }
 
     ModalBottomSheet(
         onDismissRequest = {

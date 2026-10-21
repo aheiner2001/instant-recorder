@@ -155,6 +155,17 @@ fun List<TaskSuggestion>.withCalendarEvents(context: Context): List<TaskSuggesti
     }
 }
 
+/** Maps a [TaskSuggestion] to a persistable [TaskItem]. */
+fun TaskSuggestion.toTaskItem(categoryId: Long? = null, recordingId: Long? = null): TaskItem = TaskItem(
+    title = title,
+    dueAt = due?.epochMillis,
+    dueHasTime = due?.hasTime ?: false,
+    categoryId = this.categoryId ?: categoryId,
+    recordingId = recordingId,
+    repeatDays = repeatDays,
+    important = important,
+)
+
 /** Hand-offs to other apps. Neither needs a permission. */
 object TaskIntents {
     fun calendar(title: String, notes: String?, due: Due?): Intent {
