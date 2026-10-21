@@ -2,47 +2,21 @@ package app.instantrecorder.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material3.FloatingActionButtonDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.semantics.CustomAccessibilityAction
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.customActions
-import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,25 +25,41 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Deselect
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -83,6 +73,7 @@ import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxDefaults
 import androidx.compose.material3.SwipeToDismissBoxState
@@ -94,7 +85,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -102,12 +95,31 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.instantrecorder.data.Category
+import app.instantrecorder.data.NoteItem
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.Settings
@@ -138,6 +150,25 @@ fun HomeScreen(vm: MainViewModel) {
     // An id, not the task, so the editor survives folding/unfolding and always shows the current row.
     var editingTaskId by rememberSaveable { mutableStateOf<Long?>(null) }
     var tab by rememberSaveable { mutableIntStateOf(0) }
+
+    var isSelecting by rememberSaveable { mutableStateOf(false) }
+    var selectedNoteIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
+    var selectedRecordingIds by rememberSaveable { mutableStateOf(setOf<Long>()) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var showMergeCategoryDialog by remember { mutableStateOf(false) }
+    var visibleNotes by remember { mutableStateOf(notes) }
+
+    LaunchedEffect(notes) {
+        if (visibleNotes.isEmpty() || !isSelecting) {
+            visibleNotes = notes
+        }
+    }
+
+    BackHandler(enabled = isSelecting) {
+        isSelecting = false
+        selectedNoteIds = emptySet()
+        selectedRecordingIds = emptySet()
+    }
 
     val snackbar = remember { SnackbarHostState() }
     // Shows "… · Undo" for every undoable action: deletes anywhere in the app, checking off a repeating task.
@@ -202,12 +233,142 @@ fun HomeScreen(vm: MainViewModel) {
         )
     }
 
+    if (showDeleteDialog) {
+        val count = if (tab == 0) selectedNoteIds.size else selectedRecordingIds.size
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text(deleteDialogTitle(isNotesTab = (tab == 0), count = count)) },
+            text = { Text("This will remove the selected items and their associated files.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (tab == 0) {
+                        vm.deleteNotes(notes.filter { it.id in selectedNoteIds })
+                        selectedNoteIds = emptySet()
+                    } else {
+                        vm.deleteRecordings(recordings.filter { it.id in selectedRecordingIds })
+                        selectedRecordingIds = emptySet()
+                    }
+                    showDeleteDialog = false
+                    isSelecting = false
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showMergeCategoryDialog) {
+        val chosen = notes.filter { it.id in selectedNoteIds }
+        AlertDialog(
+            onDismissRequest = { showMergeCategoryDialog = false },
+            title = { Text("Merge into category") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    ListItem(
+                        modifier = Modifier.clickable {
+                            vm.mergeNotes(chosen, null)
+                            showMergeCategoryDialog = false
+                            isSelecting = false
+                            selectedNoteIds = emptySet()
+                        },
+                        leadingContent = { CategoryDot(0xFF9E9E9E.toInt()) },
+                        headlineContent = { Text("Unassigned") },
+                    )
+                    categories.forEach { c ->
+                        ListItem(
+                            modifier = Modifier.clickable {
+                                vm.mergeNotes(chosen, c.id)
+                                showMergeCategoryDialog = false
+                                isSelecting = false
+                                selectedNoteIds = emptySet()
+                            },
+                            leadingContent = { CategoryDot(c.color) },
+                            headlineContent = { Text(c.name) },
+                        )
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { showMergeCategoryDialog = false }) { Text("Cancel") } }
+        )
+    }
+
     Scaffold(
         topBar = {
+            val selectedCount = if (tab == 0) selectedNoteIds.size else selectedRecordingIds.size
+            val visibleRecordings = recordings
             TopAppBar(
-                title = { Text("Instant Recorder") },
+                title = { Text(if (isSelecting) selectionTitle(selectedCount) else "Instant Recorder") },
+                navigationIcon = {
+                    if (isSelecting) {
+                        IconButton(onClick = {
+                            isSelecting = false
+                            selectedNoteIds = emptySet()
+                            selectedRecordingIds = emptySet()
+                        }) {
+                            Icon(Icons.Filled.Close, "Exit selection")
+                        }
+                    }
+                },
                 actions = {
-                    IconButton(onClick = { vm.open(Route.Settings) }) { Icon(Icons.Filled.Settings, "Settings") }
+                    if (!isSelecting) {
+                        if (tab != 1) {
+                            IconButton(onClick = { isSelecting = true }) {
+                                Icon(Icons.Filled.Checklist, "Select items")
+                            }
+                        }
+                        IconButton(onClick = { vm.open(Route.Settings) }) { Icon(Icons.Filled.Settings, "Settings") }
+                    } else {
+                        val allSelected = if (tab == 0) {
+                            isAllSelected(visibleNotes.map { it.id }.toSet(), selectedNoteIds)
+                        } else {
+                            val selectable = visibleRecordings.filter { it.status != RecordingStatus.TRANSCRIBING }.map { it.id }.toSet()
+                            isAllSelected(selectable, selectedRecordingIds)
+                        }
+                        IconButton(onClick = {
+                            if (tab == 0) {
+                                val visibleIds = visibleNotes.map { it.id }.toSet()
+                                selectedNoteIds = computeNewSelection(allSelected, visibleIds)
+                            } else {
+                                val selectableIds = visibleRecordings.filter { it.status != RecordingStatus.TRANSCRIBING }.map { it.id }.toSet()
+                                selectedRecordingIds = computeNewSelection(allSelected, selectableIds)
+                            }
+                        }) {
+                            Icon(
+                                if (allSelected) Icons.Filled.Deselect else Icons.Filled.SelectAll,
+                                if (allSelected) "Deselect all" else "Select all"
+                            )
+                        }
+                        if (tab == 0) {
+                            IconButton(
+                                onClick = {
+                                    val chosen = notes.filter { it.id in selectedNoteIds }
+                                    when (val res = resolveMergeCategory(chosen)) {
+                                        is MergeCategoryResolution.Direct -> {
+                                            vm.mergeNotes(chosen, res.categoryId)
+                                            isSelecting = false
+                                            selectedNoteIds = emptySet()
+                                        }
+                                        MergeCategoryResolution.NeedsPrompt -> {
+                                            showMergeCategoryDialog = true
+                                        }
+                                    }
+                                },
+                                enabled = isMergeEnabled(selectedNoteIds.size),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.CallMerge, "Merge notes")
+                            }
+                        }
+                        IconButton(
+                            onClick = { showDeleteDialog = true },
+                            enabled = isDeleteEnabled(if (tab == 0) selectedNoteIds.size else selectedRecordingIds.size),
+                        ) {
+                            Icon(Icons.Filled.Delete, "Delete selected")
+                        }
+                    }
                 },
             )
         },
@@ -226,9 +387,42 @@ fun HomeScreen(vm: MainViewModel) {
         ) {
             SetupCard(vm)
             PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Notes") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Tasks (${tasks.count { !it.done }})") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Recordings") })
+                Tab(
+                    selected = tab == 0,
+                    onClick = {
+                        if (tab != 0) {
+                            tab = 0
+                            isSelecting = false
+                            selectedNoteIds = emptySet()
+                            selectedRecordingIds = emptySet()
+                        }
+                    },
+                    text = { Text("Notes") }
+                )
+                Tab(
+                    selected = tab == 1,
+                    onClick = {
+                        if (tab != 1) {
+                            tab = 1
+                            isSelecting = false
+                            selectedNoteIds = emptySet()
+                            selectedRecordingIds = emptySet()
+                        }
+                    },
+                    text = { Text("Tasks (${tasks.count { !it.done }})") }
+                )
+                Tab(
+                    selected = tab == 2,
+                    onClick = {
+                        if (tab != 2) {
+                            tab = 2
+                            isSelecting = false
+                            selectedNoteIds = emptySet()
+                            selectedRecordingIds = emptySet()
+                        }
+                    },
+                    text = { Text("Recordings") }
+                )
             }
             val listContentPadding = PaddingValues(
                 bottom = padding.calculateBottomPadding() + 120.dp,
@@ -246,6 +440,16 @@ fun HomeScreen(vm: MainViewModel) {
                     },
                     contentPadding = listContentPadding,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
+                    isSelecting = isSelecting,
+                    selectedNoteIds = selectedNoteIds,
+                    onToggleSelectNote = { id ->
+                        selectedNoteIds = if (id in selectedNoteIds) selectedNoteIds - id else selectedNoteIds + id
+                    },
+                    onStartSelectNote = { id ->
+                        isSelecting = true
+                        selectedNoteIds = if (id in selectedNoteIds) selectedNoteIds - id else selectedNoteIds + id
+                    },
+                    onVisibleNotesChanged = { visibleNotes = it },
                 )
                 1 -> {
                     LazyColumn(
@@ -312,11 +516,36 @@ fun HomeScreen(vm: MainViewModel) {
                         }
                         items(recordings, key = { it.id }) { r ->
                             SwipeToDelete(
-                                enabled = r.status != RecordingStatus.TRANSCRIBING,
+                                enabled = !isSelecting && r.status != RecordingStatus.TRANSCRIBING,
                                 onDelete = { vm.delete(Deletion.OfRecording(r)) },
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                             ) {
-                                RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
+                                RecordingRow(
+                                    recording = r,
+                                    progress = transcribing?.takeIf { it.first == r.id }?.second,
+                                    isSelecting = isSelecting,
+                                    isSelected = r.id in selectedRecordingIds,
+                                    onToggleSelect = {
+                                        if (r.status != RecordingStatus.TRANSCRIBING) {
+                                            selectedRecordingIds = if (r.id in selectedRecordingIds) {
+                                                selectedRecordingIds - r.id
+                                            } else {
+                                                selectedRecordingIds + r.id
+                                            }
+                                        }
+                                    },
+                                    onStartSelect = {
+                                        if (r.status != RecordingStatus.TRANSCRIBING) {
+                                            isSelecting = true
+                                            selectedRecordingIds = if (r.id in selectedRecordingIds) {
+                                                selectedRecordingIds - r.id
+                                            } else {
+                                                selectedRecordingIds + r.id
+                                            }
+                                        }
+                                    },
+                                    onClick = { vm.open(Route.Review(r.id)) },
+                                )
                             }
                         }
                     }
@@ -454,39 +683,65 @@ internal fun SwipeToDelete(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun RecordingRow(recording: Recording, progress: Int?, onClick: () -> Unit) {
+private fun RecordingRow(
+    recording: Recording,
+    progress: Int?,
+    isSelecting: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
+    onStartSelect: () -> Unit = {},
+    onClick: () -> Unit,
+) {
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { if (isSelecting) onToggleSelect() else onClick() },
+                onLongClick = onStartSelect,
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(formatTimestamp(recording.createdAt), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                Text(formatDuration(recording.durationMs), style = MaterialTheme.typography.labelLarge)
-            }
-            val muted = MaterialTheme.colorScheme.onSurfaceVariant
-            when (recording.status) {
-                RecordingStatus.DONE -> Text(
-                    recording.transcript.orEmpty(), maxLines = 3, overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodyMedium,
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AnimatedVisibility(visible = isSelecting) {
+                Checkbox(
+                    checked = isSelected,
+                    enabled = recording.status != RecordingStatus.TRANSCRIBING,
+                    onCheckedChange = { onToggleSelect() },
+                    modifier = Modifier.padding(end = 8.dp),
                 )
-                RecordingStatus.TRANSCRIBING -> {
-                    Text("Transcribing… ${progress ?: 0}%", color = muted)
-                    LinearProgressIndicator(progress = { (progress ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(formatTimestamp(recording.createdAt), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                    Text(formatDuration(recording.durationMs), style = MaterialTheme.typography.labelLarge)
                 }
-                RecordingStatus.RECORDED -> Text("Waiting to transcribe", color = muted)
-                RecordingStatus.NEEDS_MODEL -> Text("Download a speech model to transcribe this", color = muted)
-                RecordingStatus.NO_SPEECH -> Text("No speech detected", color = muted)
-                RecordingStatus.FAILED -> Text("Transcription failed: ${recording.error}", color = MaterialTheme.colorScheme.error)
-            }
-            if (recording.tasksCreated > 0) {
-                Text(
-                    if (recording.tasksCreated == 1) "1 task created" else "${recording.tasksCreated} tasks created",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                val muted = MaterialTheme.colorScheme.onSurfaceVariant
+                when (recording.status) {
+                    RecordingStatus.DONE -> Text(
+                        recording.transcript.orEmpty(), maxLines = 3, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    RecordingStatus.TRANSCRIBING -> {
+                        Text("Transcribing… ${progress ?: 0}%", color = muted)
+                        LinearProgressIndicator(progress = { (progress ?: 0) / 100f }, modifier = Modifier.fillMaxWidth())
+                    }
+                    RecordingStatus.RECORDED -> Text("Waiting to transcribe", color = muted)
+                    RecordingStatus.NEEDS_MODEL -> Text("Download a speech model to transcribe this", color = muted)
+                    RecordingStatus.NO_SPEECH -> Text("No speech detected", color = muted)
+                    RecordingStatus.FAILED -> Text("Transcription failed: ${recording.error}", color = MaterialTheme.colorScheme.error)
+                }
+                if (recording.tasksCreated > 0) {
+                    Text(
+                        if (recording.tasksCreated == 1) "1 task created" else "${recording.tasksCreated} tasks created",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
         }
     }
@@ -653,3 +908,36 @@ private fun EventLabel(eventTitle: String) {
         )
     }
 }
+
+fun isMergeEnabled(selectedCount: Int): Boolean = selectedCount >= 2
+
+fun isDeleteEnabled(selectedCount: Int): Boolean = selectedCount >= 1
+
+fun selectionTitle(selectedCount: Int): String =
+    if (selectedCount == 0) "Select items" else "$selectedCount selected"
+
+fun deleteDialogTitle(isNotesTab: Boolean, count: Int): String {
+    val itemType = if (isNotesTab) (if (count == 1) "note" else "notes") else (if (count == 1) "recording" else "recordings")
+    return "Delete $count $itemType?"
+}
+
+sealed interface MergeCategoryResolution {
+    data class Direct(val categoryId: Long?) : MergeCategoryResolution
+    data object NeedsPrompt : MergeCategoryResolution
+}
+
+fun resolveMergeCategory(notes: List<NoteItem>): MergeCategoryResolution {
+    val catIds = notes.map { it.categoryId }.distinct()
+    return if (catIds.size == 1) {
+        MergeCategoryResolution.Direct(catIds.first())
+    } else {
+        MergeCategoryResolution.NeedsPrompt
+    }
+}
+
+fun isAllSelected(visibleIds: Set<Long>, selectedIds: Set<Long>): Boolean =
+    visibleIds.isNotEmpty() && selectedIds.containsAll(visibleIds)
+
+fun computeNewSelection(allSelected: Boolean, visibleIds: Set<Long>): Set<Long> =
+    if (allSelected) emptySet() else visibleIds
+

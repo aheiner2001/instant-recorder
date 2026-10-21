@@ -2,9 +2,11 @@ package app.instantrecorder.ui
 
 import android.content.Intent
 import android.provider.CalendarContract
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -43,6 +46,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -97,6 +101,11 @@ fun NotesList(
     onTogglePin: ((NoteItem) -> Unit)? = null,
     onAddTask: ((TaskSuggestion, Long?, Long?) -> Unit)? = null,
     vm: MainViewModel? = null,
+    isSelecting: Boolean = false,
+    selectedNoteIds: Set<Long> = emptySet(),
+    onToggleSelectNote: ((Long) -> Unit)? = null,
+    onStartSelectNote: ((Long) -> Unit)? = null,
+    onVisibleNotesChanged: ((List<NoteItem>) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -128,6 +137,10 @@ fun NotesList(
             val matchesSearch = searchQuery.isBlank() || note.text.contains(searchQuery.trim(), ignoreCase = true)
             matchesCategory && matchesSearch
         }
+    }
+
+    LaunchedEffect(filteredNotes) {
+        onVisibleNotesChanged?.invoke(filteredNotes)
     }
 
     val (pinned, unpinned) = remember(filteredNotes) { filteredNotes.partition { it.pinned } }
@@ -240,7 +253,7 @@ fun NotesList(
                     }
                     items(pinned, key = { it.id }) { note ->
                         SwipeToDelete(
-                            enabled = true,
+                            enabled = !isSelecting,
                             onDelete = { onDelete(note) },
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                         ) {
@@ -252,6 +265,10 @@ fun NotesList(
                                     editingNoteId = note.id
                                     onNoteClick?.invoke(note)
                                 },
+                                isSelecting = isSelecting,
+                                isSelected = note.id in selectedNoteIds,
+                                onToggleSelect = { onToggleSelectNote?.invoke(note.id) },
+                                onStartSelect = { onStartSelectNote?.invoke(note.id) },
                             )
                         }
                     }
@@ -281,7 +298,7 @@ fun NotesList(
                     if (!isCollapsed) {
                         items(groupNotes, key = { it.id }) { note ->
                             SwipeToDelete(
-                                enabled = true,
+                                enabled = !isSelecting,
                                 onDelete = { onDelete(note) },
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                             ) {
@@ -293,6 +310,10 @@ fun NotesList(
                                         editingNoteId = note.id
                                         onNoteClick?.invoke(note)
                                     },
+                                    isSelecting = isSelecting,
+                                    isSelected = note.id in selectedNoteIds,
+                                    onToggleSelect = { onToggleSelectNote?.invoke(note.id) },
+                                    onStartSelect = { onStartSelectNote?.invoke(note.id) },
                                 )
                             }
                         }
@@ -440,6 +461,7 @@ fun DateGroupHeader(
 }
 
 /** Note card displaying text, creation date, category label (or Unassigned), and "Assign" button. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NoteRow(
     note: NoteItem,
@@ -447,76 +469,95 @@ fun NoteRow(
     onAssignCategory: () -> Unit,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    isSelecting: Boolean = false,
+    isSelected: Boolean = false,
+    onToggleSelect: (() -> Unit)? = null,
+    onStartSelect: (() -> Unit)? = null,
 ) {
-    val cardModifier = if (onClick != null) {
-        modifier.fillMaxWidth().clickable { onClick() }
-    } else {
-        modifier.fillMaxWidth()
-    }
     Card(
-        modifier = cardModifier,
+        modifier = modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = {
+                    if (isSelecting) onToggleSelect?.invoke() else onClick?.invoke()
+                },
+                onLongClick = onStartSelect,
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        Column(
+        Row(
             modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+            AnimatedVisibility(visible = isSelecting) {
+                Checkbox(
+                    checked = isSelected,
+                    onCheckedChange = { onToggleSelect?.invoke() },
+                    modifier = Modifier.padding(end = 8.dp),
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    if (note.pinned) {
-                        Icon(
-                            imageVector = Icons.Filled.PushPin,
-                            contentDescription = "Pinned note",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                    Text(
-                        text = formatTimestamp(note.createdAt),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    if (category != null) {
-                        CategoryLabel(category)
-                    } else {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                        ) {
-                            Text(
-                                text = "Unassigned",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        if (note.pinned) {
+                            Icon(
+                                imageVector = Icons.Filled.PushPin,
+                                contentDescription = "Pinned note",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
+                        Text(
+                            text = formatTimestamp(note.createdAt),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    OutlinedButton(
-                        onClick = onAssignCategory,
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                        modifier = Modifier.height(32.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text("Assign", style = MaterialTheme.typography.labelMedium)
+                        if (category != null) {
+                            CategoryLabel(category)
+                        } else {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
+                            ) {
+                                Text(
+                                    text = "Unassigned",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        OutlinedButton(
+                            onClick = onAssignCategory,
+                            enabled = !isSelecting,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                            modifier = Modifier.height(32.dp),
+                        ) {
+                            Text("Assign", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
+                Text(
+                    text = note.text,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
             }
-            Text(
-                text = note.text,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
         }
     }
 }
