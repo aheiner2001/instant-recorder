@@ -18,6 +18,7 @@ import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -30,6 +31,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -37,6 +39,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.TaskSuggestion
+import app.instantrecorder.tasks.rule
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,8 +55,11 @@ fun NoteEditorSheet(
     onDelete: () -> Unit,
     onShare: (String) -> Unit,
     onCalendar: (String) -> Unit,
+    onAddTask: (TaskSuggestion) -> Unit = {},
 ) {
     var text by rememberSaveable(note.id) { mutableStateOf(note.text) }
+    val suggestions = remember(text, categories) { TaskExtractor.extract(text, categories = categories.map { it.rule() }) }
+    var addedTitles by rememberSaveable { mutableStateOf(setOf<String>()) }
 
     ModalBottomSheet(
         onDismissRequest = {
@@ -120,6 +128,62 @@ fun NoteEditorSheet(
                 minLines = 4,
                 maxLines = 12,
             )
+
+            // Action items detected in the note text
+            if (suggestions.isNotEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Action Items in this Note (${suggestions.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    suggestions.forEach { suggestion ->
+                        val isAdded = suggestion.title in addedTitles
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(end = 8.dp),
+                            ) {
+                                Text(
+                                    text = suggestion.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                if (suggestion.due != null) {
+                                    Text(
+                                        text = suggestion.due.label(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                            if (isAdded) {
+                                FilledTonalButton(
+                                    onClick = {},
+                                    enabled = false,
+                                ) {
+                                    Text("✓ Added")
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        onAddTask(suggestion)
+                                        addedTitles = addedTitles + suggestion.title
+                                    },
+                                ) {
+                                    Text("+ Add")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // Action buttons: Calendar & Share
             Row(

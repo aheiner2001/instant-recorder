@@ -243,6 +243,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun addTaskFromSuggestion(suggestion: TaskSuggestion, categoryId: Long?, recordingId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val item = TaskItem(
+                title = suggestion.title,
+                dueAt = suggestion.due?.epochMillis,
+                dueHasTime = suggestion.due?.hasTime ?: false,
+                categoryId = suggestion.categoryId ?: categoryId,
+                recordingId = recordingId,
+                repeatDays = suggestion.repeatDays,
+                important = suggestion.important
+            )
+            val id = graph.db.tasks().insert(item)
+            Reminders.schedule(context, item.copy(id = id))
+        }
+    }
+
     /** A task typed in by hand, not from a recording. */
     fun addTask(title: String, notes: String?, due: Due?, categoryId: Long?, repeatDays: Int, link: EventLink?, important: Boolean) {
         viewModelScope.launch {
