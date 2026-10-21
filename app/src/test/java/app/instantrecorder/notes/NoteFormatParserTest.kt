@@ -123,4 +123,26 @@ class NoteFormatParserTest {
         val expected = "# Meeting Agenda\n\n- Review budget\n- Assign tasks"
         assertEquals(expected, result.formattedText)
     }
+
+    @Test
+    fun `supports apostrophes and curly apostrophes in category commands`() {
+        val result1 = NoteFormatParser.parse("Add category Mom's list: buy birthday flowers")
+        assertEquals("Mom's list", result1.addCategoryName)
+        assertEquals("Buy birthday flowers", result1.formattedText)
+
+        val result2 = NoteFormatParser.parse("Append to Aaron's prep: check mic levels")
+        assertEquals("Aaron's prep", result2.appendCategoryName)
+        assertEquals("Check mic levels", result2.formattedText)
+
+        val result3 = NoteFormatParser.parse("Add category Mom’s list that buy flowers")
+        assertEquals("Mom’s list", result3.addCategoryName)
+        assertEquals("Buy flowers", result3.formattedText)
+    }
+
+    @Test
+    fun `capitalizes addCategoryName`() {
+        val result = NoteFormatParser.parse("add category grocery list: milk and eggs")
+        assertEquals("Grocery list", result.addCategoryName)
+        assertEquals("Milk and eggs", result.formattedText)
+    }
 }

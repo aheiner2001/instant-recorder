@@ -51,6 +51,18 @@ class NoteEntityTest {
     }
 
     @Test
+    fun `tagList extension parses and trims comma-separated tags`() {
+        val emptyNote = NoteItem(text = "Empty tags")
+        assertEquals(emptyList<String>(), emptyNote.tagList)
+
+        val blankNote = NoteItem(text = "Blank tags", tags = "  ,  ")
+        assertEquals(emptyList<String>(), blankNote.tagList)
+
+        val note = NoteItem(text = "Tagged note", tags = "work, urgent , notes")
+        assertEquals(listOf("work", "urgent", "notes"), note.tagList)
+    }
+
+    @Test
     fun `copy note item allows assigning category while preserving other fields`() {
         val original = NoteItem(
             id = 10L,

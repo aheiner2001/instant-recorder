@@ -23,6 +23,10 @@ data class NoteItem(
     @ColumnInfo(defaultValue = "''") val tags: String = ""
 )
 
+val NoteItem.tagList: List<String>
+    get() = if (tags.isBlank()) emptyList() else tags.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+
+
 @Dao
 interface NoteDao {
     @Query("SELECT * FROM notes ORDER BY createdAt DESC")

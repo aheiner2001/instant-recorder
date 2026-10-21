@@ -32,6 +32,7 @@ import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.data.tagList
 import app.instantrecorder.notes.CategoryVoiceRouter
 import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.notes.NoteFormatParser
@@ -332,8 +333,14 @@ class RecordingService : LifecycleService() {
                     if (existingNote != null) {
                         val timeStr = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()).format(LocalTime.now())
                         val appendedText = "${existingNote.text}\n\n- **$timeStr**: ${formatResult.formattedText}"
+                        val mergedTags = if (formatResult.tags.isNotEmpty()) {
+                            (existingNote.tagList + formatResult.tags).distinct().joinToString(",")
+                        } else {
+                            existingNote.tags
+                        }
                         val updatedNote = existingNote.copy(
                             text = appendedText,
+                            tags = mergedTags,
                             updatedAt = System.currentTimeMillis()
                         )
                         val mdFile = withContext(Dispatchers.IO) {

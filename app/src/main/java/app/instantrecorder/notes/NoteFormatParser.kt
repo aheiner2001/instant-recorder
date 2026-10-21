@@ -17,12 +17,12 @@ object NoteFormatParser {
     )
 
     private val ADD_CATEGORY_TRIGGER = Regex(
-        """^(?:please\s+)?(?:add|create|new)\s+category\s+(?:([a-zA-Z0-9_\- ]+?)\s*[:,\.\-–—]+\s*|([a-zA-Z0-9_\- ]+?)\s+(?:and|that)\s+|([a-zA-Z0-9_\-]+)\s+)(.*)$""",
+        """^(?:please\s+)?(?:add|create|new)\s+category\s+(?:([a-zA-Z0-9_\-'’ ]+?)\s*[:,\.\-–—]+\s*|([a-zA-Z0-9_\-'’ ]+?)\s+(?:and|that)\s+|([a-zA-Z0-9_\-'’]+)\s+)(.*)$""",
         RegexOption.IGNORE_CASE
     )
 
     private val APPEND_TRIGGER = Regex(
-        """^(?:append\s+to|add\s+to)\s+(?:([a-zA-Z0-9_\- ]+?)\s*[:,\.\-–—]+\s*|([a-zA-Z0-9_\- ]+?)\s+(?:and|that)\s+|([a-zA-Z0-9_\-]+)\s+)(.*)$""",
+        """^(?:append\s+to|add\s+to)\s+(?:([a-zA-Z0-9_\-'’ ]+?)\s*[:,\.\-–—]+\s*|([a-zA-Z0-9_\-'’ ]+?)\s+(?:and|that)\s+|([a-zA-Z0-9_\-'’]+)\s+)(.*)$""",
         RegexOption.IGNORE_CASE
     )
 
@@ -68,7 +68,7 @@ object NoteFormatParser {
             val category = (addMatch.groupValues[1].ifEmpty { null }
                 ?: addMatch.groupValues[2].ifEmpty { null }
                 ?: addMatch.groupValues[3]).trim()
-            addCategoryName = category
+            addCategoryName = category.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
             workingText = addMatch.groupValues[4].trim()
         } else {
             // 2. Check Append command

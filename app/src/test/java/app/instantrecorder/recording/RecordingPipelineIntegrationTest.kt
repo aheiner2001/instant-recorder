@@ -2,6 +2,7 @@ package app.instantrecorder.recording
 
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import app.instantrecorder.data.tagList
 import app.instantrecorder.notes.CategoryVoiceRouter
 import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.notes.NoteFormatParser
@@ -361,5 +362,26 @@ class RecordingPipelineIntegrationTest {
         assertTrue("CATEGORY_COLORS should not be empty", CATEGORY_COLORS.isNotEmpty())
         assertEquals("CATEGORY_COLORS should provide 8 palette colors", 8, CATEGORY_COLORS.size)
         assertEquals(0xFF43A047.toInt(), CATEGORY_COLORS[0])
+    }
+
+    @Test
+    fun `pipeline merges tags when appending to existing note`() {
+        val transcript = "Append to Church: check with choir tag choir and tag urgent"
+        val formatResult = NoteFormatParser.parse(transcript)
+        assertEquals(listOf("choir", "urgent"), formatResult.tags)
+
+        val existingNote = NoteItem(
+            id = 210L,
+            text = "Morning prayer",
+            tags = "worship,urgent"
+        )
+
+        val mergedTags = if (formatResult.tags.isNotEmpty()) {
+            (existingNote.tagList + formatResult.tags).distinct().joinToString(",")
+        } else {
+            existingNote.tags
+        }
+
+        assertEquals("worship,urgent,choir", mergedTags)
     }
 }

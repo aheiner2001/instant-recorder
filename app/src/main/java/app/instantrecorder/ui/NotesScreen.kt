@@ -317,19 +317,19 @@ fun NotesList(
                 onDelete(note)
                 editingNoteId = null
             },
-            onShare = {
+            onShare = { sharedText ->
                 val send = Intent(Intent.ACTION_SEND)
                     .setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, note.text)
+                    .putExtra(Intent.EXTRA_TEXT, sharedText)
                     .putExtra(Intent.EXTRA_SUBJECT, "Note")
                 context.launchSafely(Intent.createChooser(send, "Share note"))
             },
-            onCalendar = {
-                val title = note.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "Note"
+            onCalendar = { calText ->
+                val title = calText.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "Note"
                 val intent = Intent(Intent.ACTION_INSERT)
                     .setData(CalendarContract.Events.CONTENT_URI)
                     .putExtra(CalendarContract.Events.TITLE, title)
-                    .putExtra(CalendarContract.Events.DESCRIPTION, note.text)
+                    .putExtra(CalendarContract.Events.DESCRIPTION, calText)
                 context.launchSafely(intent)
             },
         )

@@ -48,8 +48,8 @@ fun NoteEditorSheet(
     onSelectCategory: (Long?) -> Unit,
     onTogglePin: () -> Unit,
     onDelete: () -> Unit,
-    onShare: () -> Unit,
-    onCalendar: () -> Unit,
+    onShare: (String) -> Unit,
+    onCalendar: (String) -> Unit,
 ) {
     var text by rememberSaveable(note.id) { mutableStateOf(note.text) }
 
@@ -130,7 +130,7 @@ fun NoteEditorSheet(
                 OutlinedButton(
                     onClick = {
                         if (text != note.text && text.isNotBlank()) onSaveText(text)
-                        onCalendar()
+                        onCalendar(text)
                     },
                     modifier = Modifier.weight(1f),
                 ) {
@@ -140,7 +140,7 @@ fun NoteEditorSheet(
                 OutlinedButton(
                     onClick = {
                         if (text != note.text && text.isNotBlank()) onSaveText(text)
-                        onShare()
+                        onShare(text)
                     },
                     modifier = Modifier.weight(1f),
                 ) {
