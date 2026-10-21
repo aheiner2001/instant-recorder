@@ -36,11 +36,10 @@ import app.instantrecorder.data.tagList
 import app.instantrecorder.notes.CategoryVoiceRouter
 import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.notes.NoteFormatParser
-import app.instantrecorder.tasks.Reminders
+import app.instantrecorder.tasks.TaskAutoSaver
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.tasks.rule
-import app.instantrecorder.tasks.toTaskItem
 import app.instantrecorder.transcribe.Transcriber
 import app.instantrecorder.transcribe.WhisperLib
 import app.instantrecorder.transcribe.WhisperModel
@@ -408,13 +407,7 @@ class RecordingService : LifecycleService() {
     ): List<TaskSuggestion> {
         val categoryRuleList = categories.map { it.rule() }
         val suggestions = TaskExtractor.extract(text, categories = categoryRuleList)
-        val actionableSuggestions = suggestions.filter { it.actionable || it.due != null }
-        if (app.settings.value.autoSaveTasks && actionableSuggestions.isNotEmpty()) {
-            val items = actionableSuggestions.map { it.toTaskItem(categoryId = categoryId, recordingId = recording.id) }
-            val ids = app.db.tasks().insertAll(items)
-            items.zip(ids) { item, id -> Reminders.schedule(this, item.copy(id = id)) }
-            app.db.recordings().addTasksCreated(recording.id, items.size)
-        }
+        TaskAutoSaver.autoSaveIfEnabled(this, recording.id, categoryId, suggestions)
         return suggestions
     }
 

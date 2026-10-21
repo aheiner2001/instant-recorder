@@ -249,6 +249,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val item = suggestion.toTaskItem(categoryId, recordingId)
             val id = graph.db.tasks().insert(item)
             Reminders.schedule(context, item.copy(id = id))
+            if (recordingId != null) {
+                graph.db.recordings().addTasksCreated(recordingId, 1)
+            }
         }
     }
 
