@@ -11,7 +11,7 @@ Built and tested on a Pixel 10 Pro Fold (Android 17). It should work on other An
 
 ## Install
 
-1. On your phone, download **[instant-recorder.apk](https://github.com/augustopedroza/instant-recorder/releases/latest/download/instant-recorder.apk)** (the newest build) and open it. Android will ask you to allow your browser to install apps; allow it.
+1. On your phone, download **[instant-recorder.apk](https://github.com/aheiner2001/instant-recorder/releases/latest/download/instant-recorder.apk)** (the newest build) and open it. Android will ask you to allow your browser to install apps; allow it.
 2. Open **Instant Recorder** and follow the "Finish setting up" card:
    - Allow the microphone and notifications.
    - Choose a speech model: **Fast** (148 MB, results in about a second) or **Accurate** (190 MB, better with names and unusual words, a few seconds per note). You can switch later in Settings.
@@ -50,13 +50,13 @@ Single volume presses work exactly as before, including holding a button to chan
 Requirements: JDK 17, Android SDK platform 37.2, NDK 28.2.13676358, CMake 3.31.5.
 
 ```sh
-git clone --recurse-submodules https://github.com/augustopedroza/instant-recorder.git
+git clone --recurse-submodules https://github.com/aheiner2001/instant-recorder.git
 cd instant-recorder
 ./gradlew :app:testDebugUnitTest   # unit tests
 ./gradlew :app:installDebug        # build and install on a connected phone
 ```
 
-Every push to `main` is built by [GitHub Actions](.github/workflows/build.yml). The workflow runs the tests and publishes a signed APK as a [release](https://github.com/augustopedroza/instant-recorder/releases). The build number is the commit count, so each build installs over the previous one.
+Every push to `main` is built by [GitHub Actions](.github/workflows/build.yml). The workflow runs the tests and publishes a signed APK as a [release](https://github.com/aheiner2001/instant-recorder/releases). The build number is the commit count, so each build installs over the previous one.
 
 ```
 app/src/main/cpp/                 CMake + JNI bridge to whisper.cpp

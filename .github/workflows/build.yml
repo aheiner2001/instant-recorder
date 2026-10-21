@@ -45,9 +45,9 @@ jobs:
           echo "code=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
           echo "name=$(sed -nE 's/.*versionName = "([^"]+)".*/\1/p' app/build.gradle.kts)" >> "$GITHUB_OUTPUT"
 
-      # Pull requests (which can come from forks) never see the signing key; they get a debug-signed APK.
+      # Pull requests or forks without release secrets get a debug-signed APK.
       - name: Decode signing key
-        if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request' && env.RELEASE_KEYSTORE_BASE64 != ''
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
