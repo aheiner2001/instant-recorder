@@ -28,9 +28,13 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import app.instantrecorder.Notifications
 import app.instantrecorder.app
+import app.instantrecorder.data.NoteItem
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.notes.CategoryVoiceRouter
+import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.rule
 import app.instantrecorder.transcribe.Transcriber
 import app.instantrecorder.transcribe.WhisperLib
 import app.instantrecorder.transcribe.WhisperModel
@@ -274,7 +278,32 @@ class RecordingService : LifecycleService() {
                 modelId = model.id,
             )
             dao.update(updated)
-            if (text.isNotBlank()) Notifications.showResult(this, updated, TaskExtractor.extract(text))
+            if (text.isNotBlank()) {
+                val categories = app.db.categories().all()
+                val routeResult = CategoryVoiceRouter.route(text, categories)
+                val categoryName = categories.firstOrNull { it.id == routeResult.categoryId }?.name
+                val noteId = app.db.notes().insert(
+                    NoteItem(
+                        text = routeResult.cleanedText,
+                        recordingId = updated.id,
+                        categoryId = routeResult.categoryId,
+                        createdAt = updated.createdAt,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+                val notesDir = File(getExternalFilesDir(null) ?: filesDir, "Notes")
+                val savedNote = app.db.notes().get(noteId)
+                if (savedNote != null) {
+                    val mdFile = MarkdownSync.syncNote(notesDir, savedNote, categoryName)
+                    app.db.notes().update(savedNote.copy(markdownPath = mdFile.absolutePath))
+                }
+                val categoryRuleList = categories.map { it.rule() }
+                Notifications.showResult(
+                    this,
+                    updated,
+                    TaskExtractor.extract(routeResult.cleanedText, categories = categoryRuleList)
+                )
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
