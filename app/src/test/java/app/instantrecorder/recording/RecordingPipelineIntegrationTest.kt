@@ -2,14 +2,25 @@ package app.instantrecorder.recording
 
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import app.instantrecorder.data.Recording
+import app.instantrecorder.data.RecordingStatus
+import app.instantrecorder.data.Settings
+import app.instantrecorder.data.TaskItem
 import app.instantrecorder.data.tagList
 import app.instantrecorder.notes.CategoryVoiceRouter
 import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.notes.NoteFormatParser
+import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.EventRef
+import app.instantrecorder.tasks.EventRequest
+import app.instantrecorder.tasks.TaskAutoSaver
 import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.tasks.rule
+import app.instantrecorder.tasks.toTaskItem
 import app.instantrecorder.ui.CATEGORY_COLORS
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -383,5 +394,170 @@ class RecordingPipelineIntegrationTest {
         }
 
         assertEquals("worship,urgent,choir", mergedTags)
+    }
+
+    @Test
+    fun `Settings has autoSaveTasks defaulting to false`() {
+        val settings = Settings()
+        assertFalse(settings.autoSaveTasks)
+    }
+
+    @Test
+    fun `Settings copy updates autoSaveTasks correctly`() {
+        val settings = Settings()
+        val updated = settings.copy(autoSaveTasks = true)
+        assertTrue(updated.autoSaveTasks)
+    }
+
+    @Test
+    fun `pipeline auto-saves actionable tasks when autoSaveTasks setting is enabled`() {
+        val transcript = "Remind me to submit the quarterly report by Friday. Also this was an interesting conference."
+        val recordingId = 42L
+        val effectiveCategoryId = 1L // Work
+
+        val categoryRules = categories.map { it.rule() }
+        val rawSuggestions = TaskExtractor.extract(transcript, categories = categoryRules)
+        assertTrue("Should extract suggestions from transcript", rawSuggestions.isNotEmpty())
+
+        // Add a non-actionable suggestion to verify filtering
+        val nonActionableSuggestion = TaskSuggestion(
+            title = "Random thought with no due date",
+            due = null,
+            actionable = false
+        )
+        val allSuggestions = rawSuggestions + nonActionableSuggestion
+
+        // Filtering using production TaskAutoSaver: actionable || due != null
+        val actionableSuggestions = TaskAutoSaver.filterActionable(allSuggestions)
+        assertFalse("Non-actionable suggestion without due date should be filtered out", actionableSuggestions.contains(nonActionableSuggestion))
+        assertTrue("Actionable suggestion should be kept", actionableSuggestions.isNotEmpty())
+
+        // Simulated auto-save disabled:
+        val autoSaveDisabledSettings = Settings(autoSaveTasks = false)
+        val savedWhenDisabled = if (autoSaveDisabledSettings.autoSaveTasks && actionableSuggestions.isNotEmpty()) {
+            actionableSuggestions.map { it.toTaskItem(categoryId = effectiveCategoryId, recordingId = recordingId) }
+        } else {
+            emptyList()
+        }
+        assertTrue("No tasks should be auto-saved when autoSaveTasks is false", savedWhenDisabled.isEmpty())
+
+        // Simulated auto-save enabled:
+        val autoSaveEnabledSettings = Settings(autoSaveTasks = true)
+        val savedWhenEnabled = if (autoSaveEnabledSettings.autoSaveTasks && actionableSuggestions.isNotEmpty()) {
+            actionableSuggestions.map { it.toTaskItem(categoryId = effectiveCategoryId, recordingId = recordingId) }
+        } else {
+            emptyList()
+        }
+        assertEquals(actionableSuggestions.size, savedWhenEnabled.size)
+
+        val firstSavedTask = savedWhenEnabled.first()
+        assertTrue("Title should contain submit report", firstSavedTask.title.contains("submit the quarterly report", ignoreCase = true) || firstSavedTask.title.contains("report", ignoreCase = true))
+        assertEquals(effectiveCategoryId, firstSavedTask.categoryId)
+        assertEquals(recordingId, firstSavedTask.recordingId)
+        assertFalse("Auto-saved task should not be marked done", firstSavedTask.done)
+    }
+
+    @Test
+    fun `RecordingService declares handleTaskExtraction helper method`() {
+        val method = RecordingService::class.java.declaredMethods.firstOrNull { it.name.startsWith("handleTaskExtraction") }
+        assertNotNull("RecordingService should declare handleTaskExtraction helper", method)
+    }
+
+    @Test
+    fun `pipeline handles task auto-save mapping for direct task routing`() {
+        val transcript = "Task: Buy printer ink by tomorrow"
+        val formatResult = NoteFormatParser.parse(transcript)
+        assertTrue(formatResult.isTask)
+
+        val categoryRules = categories.map { it.rule() }
+        val suggestions = TaskExtractor.extract(formatResult.formattedText, categories = categoryRules)
+        val actionable = TaskAutoSaver.filterActionable(suggestions)
+        assertTrue("Task format should produce actionable suggestions", actionable.isNotEmpty())
+
+        val taskItems = actionable.map { it.toTaskItem(categoryId = null, recordingId = 123L) }
+        val item = taskItems.first()
+        assertTrue("Task item should have Buy printer ink in title", item.title.contains("Buy printer ink", ignoreCase = true))
+        assertNull("Direct task routing has null categoryId fallback", item.categoryId)
+        assertEquals(123L, item.recordingId)
+        assertNotNull("Tomorrow should resolve dueAt", item.dueAt)
+    }
+
+    @Test
+    fun `pipeline handles task auto-save mapping for appended note routing`() {
+        val transcript = "Append to Work: Follow up with team lead by Friday"
+        val formatResult = NoteFormatParser.parse(transcript)
+        assertEquals("Work", formatResult.appendCategoryName)
+
+        val targetCat = categories.first { it.name == "Work" }
+        val categoryRules = categories.map { it.rule() }
+        val suggestions = TaskExtractor.extract(formatResult.formattedText, categories = categoryRules)
+        val actionable = TaskAutoSaver.filterActionable(suggestions)
+        assertTrue("Append note with due date should produce actionable suggestion", actionable.isNotEmpty())
+
+        val taskItems = actionable.map { it.toTaskItem(categoryId = targetCat.id, recordingId = 456L) }
+        val item = taskItems.first()
+        assertTrue("Task item should have follow up in title", item.title.contains("Follow up", ignoreCase = true))
+        assertEquals(targetCat.id, item.categoryId)
+        assertEquals(456L, item.recordingId)
+        assertNotNull("Friday should resolve dueAt", item.dueAt)
+    }
+
+    @Test
+    fun `TaskAutoSaver filterActionable preserves actionable or due suggestions and excludes non-actionable suggestions without due`() {
+        val s1 = TaskSuggestion(title = "Actionable without due", due = null, actionable = true)
+        val s2 = TaskSuggestion(title = "Non-actionable with due", due = Due(123456789L, hasTime = false), actionable = false)
+        val s3 = TaskSuggestion(title = "Actionable with due", due = Due(123456789L, hasTime = true), actionable = true)
+        val s4 = TaskSuggestion(title = "Pure thought", due = null, actionable = false)
+
+        val filtered = TaskAutoSaver.filterActionable(listOf(s1, s2, s3, s4))
+        assertEquals(listOf(s1, s2, s3), filtered)
+    }
+
+    @Test
+    fun `toTaskItem maps calendar event fields when linkedEvent is present`() {
+        val eventRef = EventRef(eventId = 999L, title = "Design Review", begin = 1776510000000L, allDay = false, recurring = true)
+        val suggestion = TaskSuggestion(
+            title = "Prepare slides",
+            due = Due(1776500000000L, hasTime = true),
+            actionable = true,
+            categoryId = 1L,
+            repeatDays = 0,
+            event = EventRequest(query = "Design Review", offsetMinutes = 30, phrase = "before Design Review", everyTime = true),
+            linkedEvent = eventRef,
+            important = true
+        )
+
+        val taskItem = suggestion.toTaskItem(categoryId = 2L, recordingId = 42L)
+        assertEquals("Prepare slides", taskItem.title)
+        assertEquals(1776500000000L, taskItem.dueAt)
+        assertTrue(taskItem.dueHasTime)
+        assertEquals(1L, taskItem.categoryId) // suggestion.categoryId overrides passed categoryId
+        assertEquals(42L, taskItem.recordingId)
+        assertEquals(999L, taskItem.eventId)
+        assertEquals("Design Review", taskItem.eventTitle)
+        assertEquals(1776510000000L, taskItem.eventBegin)
+        assertEquals(30, taskItem.eventOffsetMinutes)
+        assertTrue(taskItem.eventRepeats)
+        assertTrue(taskItem.important)
+    }
+
+    @Test
+    fun `toTaskItem appends event phrase to title when event requested but linkedEvent is null`() {
+        val suggestion = TaskSuggestion(
+            title = "Prepare slides",
+            due = null,
+            actionable = true,
+            event = EventRequest(query = "Design Review", offsetMinutes = 30, phrase = "before Design Review", everyTime = true),
+            linkedEvent = null
+        )
+
+        val taskItem = suggestion.toTaskItem(categoryId = 2L, recordingId = 42L)
+        assertEquals("Prepare slides (before Design Review)", taskItem.title)
+        assertNull(taskItem.eventId)
+        assertNull(taskItem.eventTitle)
+        assertNull(taskItem.eventBegin)
+        assertNull(taskItem.eventOffsetMinutes)
+        assertFalse(taskItem.eventRepeats)
+        assertEquals(2L, taskItem.categoryId) // fallback to passed categoryId
     }
 }

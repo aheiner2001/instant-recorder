@@ -21,6 +21,7 @@ import app.instantrecorder.tasks.Reminders
 import app.instantrecorder.tasks.Repeat
 import app.instantrecorder.tasks.TaskStore
 import app.instantrecorder.tasks.TaskSuggestion
+import app.instantrecorder.tasks.toTaskItem
 import app.instantrecorder.transcribe.WhisperLib
 import app.instantrecorder.transcribe.WhisperModel
 import kotlinx.coroutines.Dispatchers
@@ -239,6 +240,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 pendingUndoables.send(Completion(task, TaskStore.complete(context, task)))
             } else {
                 TaskStore.setDone(context, task, done)
+            }
+        }
+    }
+
+    fun addTaskFromSuggestion(suggestion: TaskSuggestion, categoryId: Long?, recordingId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val item = suggestion.toTaskItem(categoryId, recordingId)
+            val id = graph.db.tasks().insert(item)
+            Reminders.schedule(context, item.copy(id = id))
+            if (recordingId != null) {
+                graph.db.recordings().addTasksCreated(recordingId, 1)
             }
         }
     }

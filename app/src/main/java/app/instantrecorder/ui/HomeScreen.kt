@@ -241,6 +241,9 @@ fun HomeScreen(vm: MainViewModel) {
                     onDelete = { note -> vm.delete(Deletion.OfNote(note)) },
                     onUpdateText = { note, newText -> vm.updateNoteText(note, newText) },
                     onTogglePin = { note -> vm.toggleNotePinned(note) },
+                    onAddTask = { suggestion, categoryId, recordingId ->
+                        vm.addTaskFromSuggestion(suggestion, categoryId, recordingId)
+                    },
                     contentPadding = listContentPadding,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )

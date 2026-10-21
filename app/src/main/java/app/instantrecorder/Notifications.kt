@@ -107,9 +107,12 @@ object Notifications {
         if (DebugKnobs.quietResults) return
         val transcript = recording.transcript.orEmpty()
         val actionable = suggestions.filter { it.actionable }
-        val title = when (actionable.size) {
-            0 -> "Transcript ready"
-            1 -> "1 task found"
+        val autoSaved = context.app.settings.value.autoSaveTasks
+        val title = when {
+            autoSaved && actionable.size == 1 -> "1 task saved"
+            autoSaved && actionable.size > 1 -> "${actionable.size} tasks saved"
+            actionable.size == 0 -> "Transcript ready"
+            actionable.size == 1 -> "1 task found"
             else -> "${actionable.size} tasks found"
         }
         val body = if (actionable.isEmpty()) transcript else actionable.joinToString("\n") { "• " + it.titleWithDue() }
@@ -120,7 +123,7 @@ object Notifications {
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(openRecording(context, recording.id))
-        if (actionable.isNotEmpty()) {
+        if (!autoSaved && actionable.isNotEmpty()) {
             builder.addAction(
                 R.drawable.ic_check,
                 if (actionable.size == 1) "Save task" else "Save all",

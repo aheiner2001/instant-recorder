@@ -19,25 +19,7 @@ import java.util.concurrent.TimeUnit
 object TaskStore {
     suspend fun save(context: Context, recordingId: Long?, suggestions: List<TaskSuggestion>, notes: String?): List<TaskItem> {
         val app = context.app
-        val items = suggestions.map {
-            val linked = it.linkedEvent
-            TaskItem(
-                // Not found in the calendar: keep what was said, so the task still makes sense.
-                title = if (it.event != null && linked == null) "${it.title} (${it.event.phrase})" else it.title,
-                notes = notes,
-                dueAt = it.due?.epochMillis,
-                dueHasTime = it.due?.hasTime ?: false,
-                recordingId = recordingId,
-                categoryId = it.categoryId,
-                repeatDays = it.repeatDays,
-                eventId = linked?.eventId,
-                eventTitle = linked?.title,
-                eventBegin = linked?.begin,
-                eventOffsetMinutes = it.event?.offsetMinutes?.takeIf { linked != null },
-                eventRepeats = it.event?.everyTime == true && linked?.recurring == true,
-                important = it.important,
-            )
-        }
+        val items = suggestions.map { it.toTaskItem(recordingId = recordingId).copy(notes = notes) }
         val ids = app.db.tasks().insertAll(items)
         val saved = items.zip(ids) { task, id -> task.copy(id = id) }
         saved.forEach { Reminders.schedule(context, it) }
@@ -152,6 +134,48 @@ fun List<TaskSuggestion>.withCalendarEvents(context: Context): List<TaskSuggesti
         val request = s.event ?: return@map s
         val event = Calendars.find(context, request.query) ?: return@map s
         s.copy(linkedEvent = event, due = EventTiming.due(event, request.offsetMinutes, zone))
+    }
+}
+
+/** Maps a [TaskSuggestion] to a persistable [TaskItem]. */
+fun TaskSuggestion.toTaskItem(categoryId: Long? = null, recordingId: Long? = null): TaskItem {
+    val linked = linkedEvent
+    return TaskItem(
+        title = if (event != null && linked == null) "${title} (${event.phrase})" else title,
+        dueAt = due?.epochMillis,
+        dueHasTime = due?.hasTime ?: false,
+        categoryId = this.categoryId ?: categoryId,
+        recordingId = recordingId,
+        repeatDays = repeatDays,
+        eventId = linked?.eventId,
+        eventTitle = linked?.title,
+        eventBegin = linked?.begin,
+        eventOffsetMinutes = event?.offsetMinutes?.takeIf { linked != null },
+        eventRepeats = event?.everyTime == true && linked?.recurring == true,
+        important = important,
+    )
+}
+
+object TaskAutoSaver {
+    fun filterActionable(suggestions: List<TaskSuggestion>): List<TaskSuggestion> =
+        suggestions.filter { it.actionable || it.due != null }
+
+    suspend fun autoSaveIfEnabled(
+        context: Context,
+        recordingId: Long,
+        categoryId: Long?,
+        suggestions: List<TaskSuggestion>,
+    ): List<TaskItem> {
+        val app = context.app
+        if (!app.settings.value.autoSaveTasks) return emptyList()
+        val actionable = filterActionable(suggestions)
+        if (actionable.isEmpty()) return emptyList()
+        val items = actionable.map { it.toTaskItem(categoryId = categoryId, recordingId = recordingId) }
+        val ids = app.db.tasks().insertAll(items)
+        val saved = items.zip(ids) { item, id -> item.copy(id = id) }
+        saved.forEach { Reminders.schedule(context, it) }
+        app.db.recordings().addTasksCreated(recordingId, saved.size)
+        return saved
     }
 }
 

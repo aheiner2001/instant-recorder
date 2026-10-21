@@ -347,6 +347,18 @@ fun SettingsScreen(vm: MainViewModel) {
 
             SectionHeader("Reminders")
             ListItem(
+                headlineContent = { Text("Automatically save recognized tasks") },
+                supportingContent = {
+                    Text("Save action items directly to the Tasks tab when transcribing notes.")
+                },
+                trailingContent = {
+                    Switch(
+                        checked = settings.autoSaveTasks,
+                        onCheckedChange = { on -> vm.updateSettings { it.copy(autoSaveTasks = on) } },
+                    )
+                },
+            )
+            ListItem(
                 headlineContent = { Text("Full-screen alarms") },
                 supportingContent = {
                     Text(

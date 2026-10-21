@@ -221,4 +221,22 @@ class TaskExtractorTest {
     fun `empty transcript`() {
         assertTrue(extract("   ").isEmpty())
     }
+
+    @Test
+    fun `task and todo lead-ins are stripped from title`() {
+        val t1 = extract("Task: call mom tomorrow at 5 p.m.").single()
+        assertEquals("Call mom", t1.title)
+
+        val t2 = extract("Todo: submit expense report").single()
+        assertEquals("Submit expense report", t2.title)
+
+        val t3 = extract("My task is to buy groceries").single()
+        assertEquals("Buy groceries", t3.title)
+    }
+
+    @Test
+    fun `trailing task and todo words are stripped from title`() {
+        assertEquals("Homework", extract("Homework task").single().title)
+        assertEquals("Clean the garage", extract("Clean the garage task").single().title)
+    }
 }

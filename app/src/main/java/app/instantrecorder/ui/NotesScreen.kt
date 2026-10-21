@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import app.instantrecorder.tasks.TaskSuggestion
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -94,6 +95,8 @@ fun NotesList(
     onNoteClick: ((NoteItem) -> Unit)? = null,
     onUpdateText: ((NoteItem, String) -> Unit)? = null,
     onTogglePin: ((NoteItem) -> Unit)? = null,
+    onAddTask: ((TaskSuggestion, Long?, Long?) -> Unit)? = null,
+    vm: MainViewModel? = null,
 ) {
     val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
@@ -331,6 +334,10 @@ fun NotesList(
                     .putExtra(CalendarContract.Events.TITLE, title)
                     .putExtra(CalendarContract.Events.DESCRIPTION, calText)
                 context.launchSafely(intent)
+            },
+            onAddTask = { suggestion ->
+                onAddTask?.invoke(suggestion, note.categoryId, note.recordingId)
+                    ?: vm?.addTaskFromSuggestion(suggestion, note.categoryId, note.recordingId)
             },
         )
     }

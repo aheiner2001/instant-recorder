@@ -122,11 +122,16 @@ object TaskExtractor {
         val leadIn = LEAD_IN.find(title)
         if (leadIn != null) title = title.substring(leadIn.range.last + 1)
         title = cleanup(stripFillers(title))
+        val trailingKeyword = TRAILING_TASK_KEYWORD.containsMatchIn(title)
+        title = title.replace(TRAILING_TASK_KEYWORD, "").trim()
+        if (trailingKeyword) {
+            title = cleanup(title)
+        }
         if (title.isEmpty()) return null
 
         val words = title.split(' ')
         val firstWord = words.first().lowercase()
-        val actionable = leadIn != null || firstWord in ACTION_VERBS
+        val actionable = leadIn != null || trailingKeyword || firstWord in ACTION_VERBS
         // Tiny fragments ("Yeah", "I") are leftovers from splitting, not tasks — unless a date or repeat says
         // otherwise ("Stand-up every weekday at 9").
         if (words.size < 2 && !actionable && due == null && event == null) return null
@@ -258,11 +263,13 @@ object TaskExtractor {
             "(?:i|we)(?:'ve| have) got to |(?:i|we) (?:gotta|got to) |(?:i|we)(?:'d| would) like to |" +
             "(?:i|we)(?:'ll| will)(?: need to| have to)? |(?:i'm|i am|we're|we are) (?:going to|gonna) |" +
             "(?:don'?t|do not) forget (?:to )?|remember to |make sure (?:to |that i |i )?|" +
-            "note to self[:,]?\\s*|to-?do[:,]?\\s*|task[:,]?\\s*|(?:add|create) (?:a )?(?:task|reminder|to-?do) (?:to )?|" +
+            "note to self[:,]?\\s*|(?:(?:my\\s+)?(?:task|todo|to-do|reminder)(?:\\s+is)?(?:\\s+to)?\\s*[:,.\\-–—]*\\s*)|" +
+            "(?:add|create) (?:a )?(?:task|reminder|to-?do) (?:to )?|" +
             "need to |have to |got to |gotta |must |let'?s " +
             ")",
         RegexOption.IGNORE_CASE,
     )
+    private val TRAILING_TASK_KEYWORD = Regex("""\s+(?:task|todo|to-do)$""", RegexOption.IGNORE_CASE)
     private val TRAILING_JUNK = Regex(
         """(?:\s+(?:on|at|by|for|in|this|next|the|before|until|around|and|or|to)|[\s,.;:!?-])+$""",
         RegexOption.IGNORE_CASE,

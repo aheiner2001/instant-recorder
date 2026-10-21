@@ -119,6 +119,9 @@ interface TaskDao {
     suspend fun get(id: Long): TaskItem?
 
     @Insert
+    suspend fun insert(task: TaskItem): Long
+
+    @Insert
     suspend fun insertAll(tasks: List<TaskItem>): List<Long>
 
     @Update

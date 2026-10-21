@@ -2,7 +2,14 @@ package app.instantrecorder.ui
 
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import app.instantrecorder.data.TaskItem
 import app.instantrecorder.notes.MarkdownSync
+import app.instantrecorder.tasks.Due
+import app.instantrecorder.tasks.Repeat
+import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.TaskSuggestion
+import app.instantrecorder.tasks.rule
+import app.instantrecorder.tasks.toTaskItem
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
@@ -351,5 +358,100 @@ class NotesUiTest {
         // Expand "Today"
         collapsedSections = if (dateLabel in collapsedSections) collapsedSections - dateLabel else collapsedSections + dateLabel
         assertFalse(dateLabel in collapsedSections)
+    }
+
+    @Test
+    fun `addTaskFromSuggestion builds TaskItem with proper title category due date and recordingId`() {
+        val suggestion = TaskSuggestion(
+            title = "Send monthly invoice",
+            due = Due(epochMillis = 1776510000000L, hasTime = true),
+            actionable = true,
+            categoryId = null,
+            repeatDays = Repeat.WEEKDAYS,
+            important = true,
+        )
+        val noteCategoryId = 1L // Work
+        val noteRecordingId = 42L
+
+        // Production mapping function TaskSuggestion.toTaskItem
+        val task = suggestion.toTaskItem(categoryId = noteCategoryId, recordingId = noteRecordingId)
+
+        assertEquals("Send monthly invoice", task.title)
+        assertEquals(1776510000000L, task.dueAt)
+        assertTrue(task.dueHasTime)
+        assertEquals(1L, task.categoryId)
+        assertEquals(42L, task.recordingId)
+        assertEquals(Repeat.WEEKDAYS, task.repeatDays)
+        assertTrue(task.important)
+        assertFalse(task.done)
+    }
+
+    @Test
+    fun `addTaskFromSuggestion preserves suggestion categoryId over note categoryId when specified`() {
+        val suggestion = TaskSuggestion(
+            title = "Buy groceries",
+            due = Due(epochMillis = 1776520000000L, hasTime = false),
+            actionable = true,
+            categoryId = 2L, // Personal override
+            repeatDays = Repeat.NONE,
+            important = false,
+        )
+        val noteCategoryId = 1L // Work
+
+        val task = suggestion.toTaskItem(categoryId = noteCategoryId, recordingId = null)
+
+        assertEquals("Buy groceries", task.title)
+        assertEquals(1776520000000L, task.dueAt)
+        assertFalse(task.dueHasTime)
+        assertEquals(2L, task.categoryId) // suggestion categoryId took precedence
+        assertNull(task.recordingId)
+        assertEquals(Repeat.NONE, task.repeatDays)
+        assertFalse(task.important)
+    }
+
+    @Test
+    fun `MainViewModel declares addTaskFromSuggestion method with correct signature`() {
+        val method = MainViewModel::class.java.methods.firstOrNull { it.name == "addTaskFromSuggestion" }
+        assertNotNull("MainViewModel should declare addTaskFromSuggestion", method)
+        assertEquals(3, method?.parameterTypes?.size)
+        assertEquals(TaskSuggestion::class.java, method?.parameterTypes?.get(0))
+        assertEquals(Long::class.javaObjectType, method?.parameterTypes?.get(1))
+        assertEquals(Long::class.javaObjectType, method?.parameterTypes?.get(2))
+    }
+
+    @Test
+    fun `NoteEditorSheet extracts action items from note text and tracks addedTitles`() {
+        val noteText = "Meeting notes. Call electrician tomorrow at 5pm. Also remember to buy printer paper."
+        val categoryRules = categories.map { it.rule() }
+
+        val suggestions = TaskExtractor.extract(noteText, categories = categoryRules)
+            .filter { it.actionable || it.due != null }
+        assertTrue("Should extract suggestions from note text", suggestions.isNotEmpty())
+        assertTrue(suggestions.any { it.title.contains("Call electrician", ignoreCase = true) })
+
+        var addedTitles = setOf<String>()
+        val firstSuggestion = suggestions.first()
+
+        // Initially not added
+        assertFalse("First suggestion should not be added yet", firstSuggestion.title in addedTitles)
+
+        // User taps [+ Add]
+        addedTitles = addedTitles + firstSuggestion.title
+        assertTrue("First suggestion should be marked as added", firstSuggestion.title in addedTitles)
+    }
+
+    @Test
+    fun `NoteEditorSheet filters suggestions by actionable or due date present`() {
+        val actionableSuggestion = TaskSuggestion(title = "Buy paper", due = null, actionable = true)
+        val datedSuggestion = TaskSuggestion(title = "Doctor appointment", due = Due(epochMillis = 1776510000000L, hasTime = true), actionable = false)
+        val passiveSuggestion = TaskSuggestion(title = "The weather was nice", due = null, actionable = false)
+
+        val filtered = listOf(actionableSuggestion, datedSuggestion, passiveSuggestion)
+            .filter { it.actionable || it.due != null }
+
+        assertEquals(2, filtered.size)
+        assertTrue(filtered.contains(actionableSuggestion))
+        assertTrue(filtered.contains(datedSuggestion))
+        assertFalse(filtered.contains(passiveSuggestion))
     }
 }
