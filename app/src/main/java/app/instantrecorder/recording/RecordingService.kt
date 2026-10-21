@@ -36,8 +36,11 @@ import app.instantrecorder.data.tagList
 import app.instantrecorder.notes.CategoryVoiceRouter
 import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.notes.NoteFormatParser
+import app.instantrecorder.tasks.Reminders
 import app.instantrecorder.tasks.TaskExtractor
+import app.instantrecorder.tasks.TaskSuggestion
 import app.instantrecorder.tasks.rule
+import app.instantrecorder.tasks.toTaskItem
 import app.instantrecorder.transcribe.Transcriber
 import app.instantrecorder.transcribe.WhisperLib
 import app.instantrecorder.transcribe.WhisperModel
@@ -292,8 +295,8 @@ class RecordingService : LifecycleService() {
 
                 if (formatResult.isTask) {
                     // Direct task routing: do not create NoteItem
-                    val categoryRuleList = categories.map { it.rule() }
-                    Notifications.showResult(this, updated, TaskExtractor.extract(formatResult.formattedText, categories = categoryRuleList))
+                    val suggestions = handleTaskExtraction(updated, formatResult.formattedText, categories, categoryId = null)
+                    Notifications.showResult(this, updated, suggestions)
                     return
                 }
 
@@ -348,8 +351,8 @@ class RecordingService : LifecycleService() {
                         }
                         app.db.notes().update(updatedNote.copy(markdownPath = mdFile.absolutePath))
 
-                        val categoryRuleList = categories.map { it.rule() }
-                        Notifications.showResult(this, updated, TaskExtractor.extract(formatResult.formattedText, categories = categoryRuleList))
+                        val suggestions = handleTaskExtraction(updated, formatResult.formattedText, categories, effectiveCategoryId)
+                        Notifications.showResult(this, updated, suggestions)
                         return
                     } else {
                         contentToSave = formatResult.formattedText
@@ -382,8 +385,8 @@ class RecordingService : LifecycleService() {
                     app.db.notes().update(savedNote.copy(markdownPath = mdFile.absolutePath))
                 }
 
-                val categoryRuleList = currentCategories.map { it.rule() }
-                Notifications.showResult(this, updated, TaskExtractor.extract(contentToSave, categories = categoryRuleList))
+                val suggestions = handleTaskExtraction(updated, contentToSave, currentCategories, effectiveCategoryId)
+                Notifications.showResult(this, updated, suggestions)
             }
         } catch (e: CancellationException) {
             throw e
@@ -395,6 +398,25 @@ class RecordingService : LifecycleService() {
             RecorderState.transcribing.value = null
             RecorderState.finished.tryEmit(id)
         }
+    }
+
+    private suspend fun handleTaskExtraction(
+        recording: Recording,
+        text: String,
+        categories: List<Category>,
+        categoryId: Long?,
+    ): List<TaskSuggestion> {
+        val categoryRuleList = categories.map { it.rule() }
+        val suggestions = TaskExtractor.extract(text, categories = categoryRuleList)
+        val actionableSuggestions = suggestions.filter { it.actionable || it.due != null }
+        if (app.settings.value.autoSaveTasks && actionableSuggestions.isNotEmpty()) {
+            for (suggestion in actionableSuggestions) {
+                val item = suggestion.toTaskItem(categoryId = categoryId, recordingId = recording.id)
+                val insertedId = app.db.tasks().insert(item)
+                Reminders.schedule(this, item.copy(id = insertedId))
+            }
+        }
+        return suggestions
     }
 
     private fun transcriberFor(model: WhisperModel): Transcriber {
