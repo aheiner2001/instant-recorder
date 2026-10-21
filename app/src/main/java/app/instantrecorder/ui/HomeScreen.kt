@@ -239,6 +239,8 @@ fun HomeScreen(vm: MainViewModel) {
                     categories = categories,
                     onAssignCategory = { note, categoryId -> vm.setNoteCategory(note, categoryId) },
                     onDelete = { note -> vm.delete(Deletion.OfNote(note)) },
+                    onUpdateText = { note, newText -> vm.updateNoteText(note, newText) },
+                    onTogglePin = { note -> vm.toggleNotePinned(note) },
                     contentPadding = listContentPadding,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 )

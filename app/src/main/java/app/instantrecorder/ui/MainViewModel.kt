@@ -201,6 +201,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateNoteText(note: NoteItem, newText: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = graph.db.notes().get(note.id) ?: note
+            val updatedTime = System.currentTimeMillis()
+            val categoryName = if (current.categoryId != null) {
+                graph.db.categories().all().firstOrNull { it.id == current.categoryId }?.name
+            } else null
+            val notesDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "Notes")
+            val updated = current.copy(text = newText, updatedAt = updatedTime)
+            val mdFile = MarkdownSync.syncNote(notesDir, updated, categoryName)
+            val finalNote = updated.copy(markdownPath = mdFile.absolutePath)
+            graph.db.notes().update(finalNote)
+        }
+    }
+
+    fun toggleNotePinned(note: NoteItem) {
+        viewModelScope.launch(Dispatchers.IO) {
+            graph.db.notes().setPinned(note.id, !note.pinned)
+        }
+    }
+
     fun saveTranscript(recordingId: Long, text: String) {
         viewModelScope.launch { graph.db.recordings().setTranscript(recordingId, text.trim()) }
     }

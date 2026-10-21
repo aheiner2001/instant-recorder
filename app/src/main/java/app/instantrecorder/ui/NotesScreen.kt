@@ -1,5 +1,7 @@
 package app.instantrecorder.ui
 
+import android.content.Intent
+import android.provider.CalendarContract
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LabelOff
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Card
@@ -43,6 +46,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
@@ -61,16 +65,23 @@ fun NotesList(
     modifier: Modifier = Modifier,
     contentPadding: PaddingValues = PaddingValues(0.dp),
     onNoteClick: ((NoteItem) -> Unit)? = null,
+    onUpdateText: ((NoteItem, String) -> Unit)? = null,
+    onTogglePin: ((NoteItem) -> Unit)? = null,
 ) {
+    val context = LocalContext.current
     var searchQuery by rememberSaveable { mutableStateOf("") }
     // null = All, -1L = Unassigned, > 0L = specific category id
     var selectedFilterId by rememberSaveable { mutableStateOf<Long?>(null) }
     var assigningNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var editingNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val validCategoryIds = remember(categories) { categories.map { it.id }.toSet() }
 
     val assigningNote = remember(notes, assigningNoteId) {
         if (assigningNoteId == null) null else notes.firstOrNull { it.id == assigningNoteId }
+    }
+    val editingNote = remember(notes, editingNoteId) {
+        if (editingNoteId == null) null else notes.firstOrNull { it.id == editingNoteId }
     }
 
     val unassignedCount = remember(notes, validCategoryIds) {
@@ -197,12 +208,51 @@ fun NotesList(
                             note = note,
                             category = categories.firstOrNull { it.id == note.categoryId },
                             onAssignCategory = { assigningNoteId = note.id },
-                            onClick = onNoteClick?.let { { it(note) } },
+                            onClick = {
+                                editingNoteId = note.id
+                                onNoteClick?.invoke(note)
+                            },
                         )
                     }
                 }
             }
         }
+    }
+
+    editingNote?.let { note ->
+        NoteEditorSheet(
+            note = note,
+            categories = categories,
+            onDismiss = { editingNoteId = null },
+            onSaveText = { newText ->
+                onUpdateText?.invoke(note, newText)
+            },
+            onSelectCategory = { newCategoryId ->
+                onAssignCategory(note, newCategoryId)
+            },
+            onTogglePin = {
+                onTogglePin?.invoke(note)
+            },
+            onDelete = {
+                onDelete(note)
+                editingNoteId = null
+            },
+            onShare = {
+                val send = Intent(Intent.ACTION_SEND)
+                    .setType("text/plain")
+                    .putExtra(Intent.EXTRA_TEXT, note.text)
+                    .putExtra(Intent.EXTRA_SUBJECT, "Note")
+                context.launchSafely(Intent.createChooser(send, "Share note"))
+            },
+            onCalendar = {
+                val title = note.text.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: "Note"
+                val intent = Intent(Intent.ACTION_INSERT)
+                    .setData(CalendarContract.Events.CONTENT_URI)
+                    .putExtra(CalendarContract.Events.TITLE, title)
+                    .putExtra(CalendarContract.Events.DESCRIPTION, note.text)
+                context.launchSafely(intent)
+            },
+        )
     }
 
     assigningNote?.let { note ->
@@ -245,11 +295,24 @@ fun NoteRow(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = formatTimestamp(note.createdAt),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (note.pinned) {
+                        Icon(
+                            imageVector = Icons.Filled.PushPin,
+                            contentDescription = "Pinned note",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Text(
+                        text = formatTimestamp(note.createdAt),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),

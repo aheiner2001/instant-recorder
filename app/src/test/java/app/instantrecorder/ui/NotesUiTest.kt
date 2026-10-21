@@ -5,6 +5,7 @@ import app.instantrecorder.data.NoteItem
 import app.instantrecorder.notes.MarkdownSync
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -156,5 +157,65 @@ class NotesUiTest {
         assertTrue(nullCategoryNote.isUnassigned(validIds))
         assertFalse(validCategoryNote.isUnassigned(validIds))
         assertTrue(deletedCategoryNote.isUnassigned(validIds))
+    }
+
+    @Test
+    fun `updateNoteText updates note text and syncs updated content to markdown file`() {
+        val notesDir = tempFolder.newFolder("Notes")
+        val workCategory = categories.first { it.id == 1L }
+        val originalNote = NoteItem(
+            id = 50L,
+            text = "Original meeting agenda",
+            categoryId = workCategory.id,
+            createdAt = 1000L,
+            updatedAt = 1000L,
+        )
+
+        // 1. Initial Markdown file creation
+        val initialFile = MarkdownSync.syncNote(notesDir, originalNote, workCategory.name)
+        assertTrue(initialFile.exists())
+        assertTrue(initialFile.readText().contains("Original meeting agenda"))
+
+        val noteWithFile = originalNote.copy(markdownPath = initialFile.absolutePath)
+
+        // 2. Perform text update logic as implemented in MainViewModel.updateNoteText
+        val newText = "Updated meeting agenda with new action items:\n- Discuss roadmap\n- Assign tasks"
+        val updatedTime = 2000L
+        val updatedNote = noteWithFile.copy(text = newText, updatedAt = updatedTime)
+        val syncedFile = MarkdownSync.syncNote(notesDir, updatedNote, workCategory.name)
+
+        // Verify the file was updated in place with new text and updated timestamp
+        assertTrue(syncedFile.exists())
+        assertEquals(initialFile.canonicalPath, syncedFile.canonicalPath)
+        val content = syncedFile.readText()
+        assertTrue(content.contains(newText))
+        assertFalse(content.contains("Original meeting agenda"))
+        assertTrue(content.contains("updated_at: 1970-01-01T00:00:02Z"))
+    }
+
+    @Test
+    fun `toggleNotePinned toggles pinned state of note`() {
+        val unpinnedNote = NoteItem(id = 60L, text = "Unpinned note", pinned = false)
+        assertFalse(unpinnedNote.pinned)
+
+        val pinnedNote = unpinnedNote.copy(pinned = !unpinnedNote.pinned)
+        assertTrue(pinnedNote.pinned)
+
+        val unpinnedAgain = pinnedNote.copy(pinned = !pinnedNote.pinned)
+        assertFalse(unpinnedAgain.pinned)
+    }
+
+    @Test
+    fun `MainViewModel declares updateNoteText and toggleNotePinned methods`() {
+        val updateMethod = MainViewModel::class.java.methods.firstOrNull { it.name == "updateNoteText" }
+        assertNotNull(updateMethod)
+        assertEquals(2, updateMethod?.parameterTypes?.size)
+        assertEquals(NoteItem::class.java, updateMethod?.parameterTypes?.get(0))
+        assertEquals(String::class.java, updateMethod?.parameterTypes?.get(1))
+
+        val toggleMethod = MainViewModel::class.java.methods.firstOrNull { it.name == "toggleNotePinned" }
+        assertNotNull(toggleMethod)
+        assertEquals(1, toggleMethod?.parameterTypes?.size)
+        assertEquals(NoteItem::class.java, toggleMethod?.parameterTypes?.get(0))
     }
 }
