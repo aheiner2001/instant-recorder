@@ -62,7 +62,11 @@ fun NotesList(
     var searchQuery by rememberSaveable { mutableStateOf("") }
     // null = All, -1L = Unassigned, > 0L = specific category id
     var selectedFilterId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var assigningNote by remember { mutableStateOf<NoteItem?>(null) }
+    var assigningNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
+
+    val assigningNote = remember(notes, assigningNoteId) {
+        if (assigningNoteId == null) null else notes.firstOrNull { it.id == assigningNoteId }
+    }
 
     val unassignedCount = remember(notes) { notes.count { it.categoryId == null } }
 
@@ -185,7 +189,7 @@ fun NotesList(
                         NoteRow(
                             note = note,
                             category = categories.firstOrNull { it.id == note.categoryId },
-                            onAssignCategory = { assigningNote = note },
+                            onAssignCategory = { assigningNoteId = note.id },
                             onClick = onNoteClick?.let { { it(note) } },
                         )
                     }
@@ -200,9 +204,9 @@ fun NotesList(
             selectedCategoryId = note.categoryId,
             onSelectCategory = { newCategory ->
                 onAssignCategory(note, newCategory?.id)
-                assigningNote = null
+                assigningNoteId = null
             },
-            onDismiss = { assigningNote = null },
+            onDismiss = { assigningNoteId = null },
         )
     }
 }
@@ -216,10 +220,13 @@ fun NoteRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
+    val cardModifier = if (onClick != null) {
+        modifier.fillMaxWidth().clickable { onClick() }
+    } else {
+        modifier.fillMaxWidth()
+    }
     Card(
-        onClick = { onClick?.invoke() },
-        enabled = onClick != null,
-        modifier = modifier.fillMaxWidth(),
+        modifier = cardModifier,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
         Column(
