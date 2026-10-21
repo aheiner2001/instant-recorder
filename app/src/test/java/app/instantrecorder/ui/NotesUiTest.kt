@@ -2,6 +2,8 @@ package app.instantrecorder.ui
 
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import app.instantrecorder.data.Recording
+import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.tasks.Due
@@ -453,5 +455,113 @@ class NotesUiTest {
         assertTrue(filtered.contains(actionableSuggestion))
         assertTrue(filtered.contains(datedSuggestion))
         assertFalse(filtered.contains(passiveSuggestion))
+    }
+
+    @Test
+    fun `isMergeEnabled requires at least 2 items`() {
+        assertFalse("0 items should not allow merge", isMergeEnabled(0))
+        assertFalse("1 item should not allow merge", isMergeEnabled(1))
+        assertTrue("2 items should allow merge", isMergeEnabled(2))
+        assertTrue("5 items should allow merge", isMergeEnabled(5))
+    }
+
+    @Test
+    fun `isDeleteEnabled requires at least 1 item`() {
+        assertFalse("0 items should not allow delete", isDeleteEnabled(0))
+        assertTrue("1 item should allow delete", isDeleteEnabled(1))
+        assertTrue("3 items should allow delete", isDeleteEnabled(3))
+    }
+
+    @Test
+    fun `selectionTitle formats Select items for 0 and count selected for positive numbers`() {
+        assertEquals("Select items", selectionTitle(0))
+        assertEquals("1 selected", selectionTitle(1))
+        assertEquals("7 selected", selectionTitle(7))
+    }
+
+    @Test
+    fun `deleteDialogTitle pluralizes correctly for notes and recordings`() {
+        assertEquals("Delete 1 note?", deleteDialogTitle(isNotesTab = true, count = 1))
+        assertEquals("Delete 2 notes?", deleteDialogTitle(isNotesTab = true, count = 2))
+        assertEquals("Delete 10 notes?", deleteDialogTitle(isNotesTab = true, count = 10))
+
+        assertEquals("Delete 1 recording?", deleteDialogTitle(isNotesTab = false, count = 1))
+        assertEquals("Delete 2 recordings?", deleteDialogTitle(isNotesTab = false, count = 2))
+        assertEquals("Delete 5 recordings?", deleteDialogTitle(isNotesTab = false, count = 5))
+    }
+
+    @Test
+    fun `resolveMergeCategory resolves direct category when all notes share same category`() {
+        val workNotes = listOf(
+            NoteItem(id = 1L, text = "Work note A", categoryId = 1L),
+            NoteItem(id = 2L, text = "Work note B", categoryId = 1L)
+        )
+        val resWork = resolveMergeCategory(workNotes)
+        assertTrue("Should resolve to Direct for matching category", resWork is MergeCategoryResolution.Direct)
+        assertEquals(1L, (resWork as MergeCategoryResolution.Direct).categoryId)
+
+        val unassignedNotes = listOf(
+            NoteItem(id = 3L, text = "Unassigned A", categoryId = null),
+            NoteItem(id = 4L, text = "Unassigned B", categoryId = null)
+        )
+        val resUnassigned = resolveMergeCategory(unassignedNotes)
+        assertTrue("Should resolve to Direct(null) for matching unassigned notes", resUnassigned is MergeCategoryResolution.Direct)
+        assertNull((resUnassigned as MergeCategoryResolution.Direct).categoryId)
+    }
+
+    @Test
+    fun `resolveMergeCategory requires prompt when notes have different categories or mix of category and null`() {
+        val mixedNotes = listOf(
+            NoteItem(id = 1L, text = "Work note", categoryId = 1L),
+            NoteItem(id = 2L, text = "Personal note", categoryId = 2L)
+        )
+        assertEquals(MergeCategoryResolution.NeedsPrompt, resolveMergeCategory(mixedNotes))
+
+        val mixedWithNull = listOf(
+            NoteItem(id = 1L, text = "Work note", categoryId = 1L),
+            NoteItem(id = 3L, text = "Unassigned note", categoryId = null)
+        )
+        assertEquals(MergeCategoryResolution.NeedsPrompt, resolveMergeCategory(mixedWithNull))
+    }
+
+    @Test
+    fun `isAllSelected and computeNewSelection correctly handle select all and deselect all`() {
+        val visibleIds = setOf(101L, 102L, 103L)
+
+        // None selected
+        assertFalse(isAllSelected(visibleIds, emptySet()))
+        // Partially selected
+        assertFalse(isAllSelected(visibleIds, setOf(101L, 102L)))
+        // All selected
+        assertTrue(isAllSelected(visibleIds, setOf(101L, 102L, 103L)))
+        // Superset selected
+        assertTrue(isAllSelected(visibleIds, setOf(101L, 102L, 103L, 104L)))
+        // Empty visible
+        assertFalse(isAllSelected(emptySet(), setOf(101L)))
+
+        // When allSelected is true -> computeNewSelection deselects all (emptySet)
+        val deselected = computeNewSelection(allSelected = true, visibleIds = visibleIds)
+        assertTrue(deselected.isEmpty())
+
+        // When allSelected is false -> computeNewSelection selects all visibleIds
+        val selectedAll = computeNewSelection(allSelected = false, visibleIds = visibleIds)
+        assertEquals(visibleIds, selectedAll)
+    }
+
+    @Test
+    fun `recordings selection excludes TRANSCRIBING status from select all`() {
+        val recordings = listOf(
+            Recording(id = 1L, filePath = "/path/1.m4a", createdAt = 1000L, durationMs = 1000L, status = RecordingStatus.DONE),
+            Recording(id = 2L, filePath = "/path/2.m4a", createdAt = 2000L, durationMs = 2000L, status = RecordingStatus.TRANSCRIBING),
+            Recording(id = 3L, filePath = "/path/3.m4a", createdAt = 3000L, durationMs = 3000L, status = RecordingStatus.RECORDED)
+        )
+        val selectable = recordings.filter { it.status != RecordingStatus.TRANSCRIBING }
+        val selectableIds = selectable.map { it.id }.toSet()
+
+        assertEquals(setOf(1L, 3L), selectableIds)
+        assertFalse(2L in selectableIds)
+
+        val newSelection = computeNewSelection(allSelected = false, visibleIds = selectableIds)
+        assertEquals(setOf(1L, 3L), newSelection)
     }
 }

@@ -12,6 +12,7 @@ import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.Settings
 import app.instantrecorder.data.TaskItem
 import app.instantrecorder.notes.MarkdownSync
+import app.instantrecorder.notes.NoteMerger
 import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
 import app.instantrecorder.tasks.Due
@@ -61,6 +62,22 @@ sealed interface Deletion : Undoable {
     data class OfNote(val note: NoteItem) : Deletion {
         override val message get() = "Note deleted"
     }
+
+    data class OfMultipleNotes(val notes: List<NoteItem>) : Deletion {
+        override val message get() = if (notes.size == 1) "1 note deleted" else "${notes.size} notes deleted"
+    }
+
+    data class OfMultipleRecordings(val recordings: List<Recording>) : Deletion {
+        override val message get() = if (recordings.size == 1) "1 recording deleted" else "${recordings.size} recordings deleted"
+    }
+}
+
+data class MergeNotesAction(
+    val originalNotes: List<NoteItem>,
+    val mergedNoteId: Long,
+    val mergedMarkdownPath: String? = null,
+) : Undoable {
+    override val message get() = "${originalNotes.size} notes merged"
 }
 
 sealed interface Route {
@@ -134,8 +151,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Reminders.cancel(context, item.task.id) // don't remind about a task that's on its way out
             }
             is Deletion.OfNote -> hiddenNotes.update { it + item.note.id }
+            is Deletion.OfMultipleNotes -> hiddenNotes.update { it + item.notes.map { note -> note.id } }
+            is Deletion.OfMultipleRecordings -> hiddenRecordings.update { it + item.recordings.map { rec -> rec.id } }
         }
         pendingUndoables.trySend(item)
+    }
+
+    fun deleteNotes(notes: List<NoteItem>) {
+        if (notes.isEmpty()) return
+        delete(Deletion.OfMultipleNotes(notes))
+    }
+
+    fun deleteRecordings(recordings: List<Recording>) {
+        if (recordings.isEmpty()) return
+        delete(Deletion.OfMultipleRecordings(recordings))
+    }
+
+    fun mergeNotes(notes: List<NoteItem>, destinationCategoryId: Long?) {
+        if (notes.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val merged = NoteMerger.buildMergedNote(notes, destinationCategoryId)
+            val id = graph.db.notes().insert(merged)
+            val saved = merged.copy(id = id)
+            val categoryName = if (destinationCategoryId != null) {
+                graph.db.categories().all().firstOrNull { it.id == destinationCategoryId }?.name
+            } else null
+            val notesDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "Notes")
+            val mdFile = MarkdownSync.syncNote(notesDir, saved, categoryName)
+            val finalNote = saved.copy(markdownPath = mdFile.absolutePath)
+            graph.db.notes().update(finalNote)
+            hiddenNotes.update { it + notes.map { n -> n.id } }
+            pendingUndoables.send(MergeNotesAction(notes, id, mdFile.absolutePath))
+        }
     }
 
     /** The snackbar's Undo was tapped. */
@@ -143,12 +190,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         when (item) {
             is Deletion -> undoDeletion(item)
             is Completion -> graph.appScope.launch { TaskStore.undoComplete(context, item.task, item.next) }
+            is MergeNotesAction -> {
+                graph.appScope.launch(Dispatchers.IO) {
+                    val merged = graph.db.notes().get(item.mergedNoteId)
+                    val mdPath = merged?.markdownPath ?: item.mergedMarkdownPath
+                    MarkdownSync.deleteNote(mdPath)
+                    if (merged != null) {
+                        graph.db.notes().delete(merged)
+                    }
+                    hiddenNotes.update { it - item.originalNotes.map { n -> n.id }.toSet() }
+                }
+            }
         }
     }
 
     /** The snackbar went away without Undo. Completions are already applied. */
     fun commit(item: Undoable) {
-        if (item is Deletion) commitDeletion(item)
+        when (item) {
+            is Deletion -> commitDeletion(item)
+            is MergeNotesAction -> {
+                graph.appScope.launch(Dispatchers.IO) {
+                    for (note in item.originalNotes) {
+                        val current = graph.db.notes().get(note.id)
+                        MarkdownSync.deleteNote(current?.markdownPath ?: note.markdownPath)
+                        if (current != null) {
+                            graph.db.notes().delete(current)
+                        }
+                    }
+                }
+            }
+            else -> {}
+        }
     }
 
     private fun undoDeletion(item: Deletion) {
@@ -159,6 +231,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Reminders.schedule(context, item.task)
             }
             is Deletion.OfNote -> hiddenNotes.update { it - item.note.id }
+            is Deletion.OfMultipleNotes -> hiddenNotes.update { it - item.notes.map { note -> note.id }.toSet() }
+            is Deletion.OfMultipleRecordings -> hiddenRecordings.update { it - item.recordings.map { rec -> rec.id }.toSet() }
         }
     }
 
@@ -182,6 +256,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val current = graph.db.notes().get(item.note.id) ?: return@launch
                     MarkdownSync.deleteNote(current.markdownPath)
                     graph.db.notes().delete(current)
+                }
+                is Deletion.OfMultipleNotes -> {
+                    for (note in item.notes) {
+                        val current = graph.db.notes().get(note.id)
+                        MarkdownSync.deleteNote(current?.markdownPath ?: note.markdownPath)
+                        if (current != null) {
+                            graph.db.notes().delete(current)
+                        }
+                    }
+                }
+                is Deletion.OfMultipleRecordings -> {
+                    for (rec in item.recordings) {
+                        val current = graph.db.recordings().get(rec.id) ?: continue
+                        if (current.status == RecordingStatus.TRANSCRIBING) {
+                            hiddenRecordings.update { it - current.id }
+                        } else {
+                            File(current.filePath).delete()
+                            graph.db.recordings().delete(current)
+                            Notifications.cancelResult(context, current.id)
+                        }
+                    }
                 }
             }
         }
