@@ -130,6 +130,7 @@ fun HomeScreen(vm: MainViewModel) {
     val context = LocalContext.current
     val recordings by vm.recordings.collectAsStateWithLifecycle()
     val tasks by vm.tasks.collectAsStateWithLifecycle()
+    val notes by vm.notes.collectAsStateWithLifecycle()
     val transcribing by vm.transcribing.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val categories by vm.categories.collectAsStateWithLifecycle()
@@ -218,80 +219,101 @@ fun HomeScreen(vm: MainViewModel) {
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
-        LazyColumn(
-            contentPadding = PaddingValues(
-                top = padding.calculateTopPadding(),
-                bottom = padding.calculateBottomPadding() + 120.dp,
-            ),
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = padding.calculateTopPadding())
         ) {
-            item { SetupCard(vm) }
-            item {
-                PrimaryTabRow(selectedTabIndex = tab) {
-                    Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Recordings") })
-                    Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Tasks (${tasks.count { !it.done }})") })
-                }
+            SetupCard(vm)
+            PrimaryTabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Notes") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Tasks (${tasks.count { !it.done }})") })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Recordings") })
             }
-            if (tab == 0) {
-                if (recordings.isEmpty()) {
-                    item {
-                        EmptyHint(
-                            "No recordings yet. To record a quick note, ${settings.volumeGestureHint}, double-tap the back " +
-                                "of the phone, or tap the mic. For a long recording, slide the mic up onto the lock."
-                        )
-                    }
-                }
-                items(recordings, key = { it.id }) { r ->
-                    SwipeToDelete(
-                        // RecordingService is working on it.
-                        enabled = r.status != RecordingStatus.TRANSCRIBING,
-                        onDelete = { vm.delete(Deletion.OfRecording(r)) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+            val listContentPadding = PaddingValues(
+                bottom = padding.calculateBottomPadding() + 120.dp,
+            )
+            when (tab) {
+                0 -> NotesList(
+                    notes = notes,
+                    categories = categories,
+                    onAssignCategory = { note, categoryId -> vm.setNoteCategory(note, categoryId) },
+                    onDelete = { note -> vm.delete(Deletion.OfNote(note)) },
+                    contentPadding = listContentPadding,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+                1 -> {
+                    LazyColumn(
+                        contentPadding = listContentPadding,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
                     ) {
-                        RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
-                    }
-                }
-            } else {
-                if (categories.isNotEmpty() && tasks.isNotEmpty()) {
-                    item {
-                        LazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        ) {
-                            item { FilterChip(selected = categoryFilter == null, onClick = { categoryFilter = null }, label = { Text("All") }) }
-                            items(categories, key = { it.id }) { c ->
-                                FilterChip(
-                                    selected = categoryFilter == c.id,
-                                    onClick = { categoryFilter = if (categoryFilter == c.id) null else c.id },
-                                    label = { Text(c.name) },
-                                    leadingIcon = { CategoryDot(c.color) },
+                        if (categories.isNotEmpty() && tasks.isNotEmpty()) {
+                            item {
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                ) {
+                                    item { FilterChip(selected = categoryFilter == null, onClick = { categoryFilter = null }, label = { Text("All") }) }
+                                    items(categories, key = { it.id }) { c ->
+                                        FilterChip(
+                                            selected = categoryFilter == c.id,
+                                            onClick = { categoryFilter = if (categoryFilter == c.id) null else c.id },
+                                            label = { Text(c.name) },
+                                            leadingIcon = { CategoryDot(c.color) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        item {
+                            TextButton(onClick = { editingTaskId = NEW_TASK_ID }, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                Icon(Icons.Filled.Add, null)
+                                Text("Add task", Modifier.padding(start = 8.dp))
+                            }
+                        }
+                        val shown = if (categoryFilter == null) tasks else tasks.filter { it.categoryId == categoryFilter }
+                        if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds, or add one by hand.") }
+                        else if (shown.isEmpty()) item { EmptyHint("No tasks in this category.") }
+                        items(shown, key = { it.id }) { t ->
+                            SwipeToDelete(enabled = true, onDelete = { vm.delete(Deletion.OfTask(t)) }, shape = RectangleShape) {
+                                TaskRow(
+                                    task = t,
+                                    category = categories.firstOrNull { it.id == t.categoryId },
+                                    onClick = { editingTaskId = t.id },
+                                    onDone = { vm.setTaskDone(t, it) },
+                                    onCalendar = {
+                                        context.launchSafely(
+                                            TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
+                                        )
+                                    },
+                                    onShare = { context.shareTasks(listOf(t.title to t.dueAt?.let { Due(it, t.dueHasTime) })) },
                                 )
                             }
                         }
                     }
                 }
-                item {
-                    TextButton(onClick = { editingTaskId = NEW_TASK_ID }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                        Icon(Icons.Filled.Add, null)
-                        Text("Add task", Modifier.padding(start = 8.dp))
-                    }
-                }
-                val shown = if (categoryFilter == null) tasks else tasks.filter { it.categoryId == categoryFilter }
-                if (tasks.isEmpty()) item { EmptyHint("No tasks yet. Record a note and save the tasks it finds, or add one by hand.") }
-                else if (shown.isEmpty()) item { EmptyHint("No tasks in this category.") }
-                items(shown, key = { it.id }) { t ->
-                    SwipeToDelete(enabled = true, onDelete = { vm.delete(Deletion.OfTask(t)) }, shape = RectangleShape) {
-                        TaskRow(
-                            task = t,
-                            category = categories.firstOrNull { it.id == t.categoryId },
-                            onClick = { editingTaskId = t.id },
-                            onDone = { vm.setTaskDone(t, it) },
-                            onCalendar = {
-                                context.launchSafely(
-                                    TaskIntents.calendar(t.title, t.notes, t.dueAt?.let { Due(it, t.dueHasTime) })
+                2 -> {
+                    LazyColumn(
+                        contentPadding = listContentPadding,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    ) {
+                        if (recordings.isEmpty()) {
+                            item {
+                                EmptyHint(
+                                    "No recordings yet. To record a quick note, ${settings.volumeGestureHint}, double-tap the back " +
+                                        "of the phone, or tap the mic. For a long recording, slide the mic up onto the lock."
                                 )
-                            },
-                            onShare = { context.shareTasks(listOf(t.title to t.dueAt?.let { Due(it, t.dueHasTime) })) },
-                        )
+                            }
+                        }
+                        items(recordings, key = { it.id }) { r ->
+                            SwipeToDelete(
+                                enabled = r.status != RecordingStatus.TRANSCRIBING,
+                                onDelete = { vm.delete(Deletion.OfRecording(r)) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            ) {
+                                RecordingRow(r, transcribing?.takeIf { it.first == r.id }?.second) { vm.open(Route.Review(r.id)) }
+                            }
+                        }
                     }
                 }
             }
@@ -377,7 +399,7 @@ private fun SetupStep(title: String, detail: String, action: @Composable () -> U
 }
 
 @Composable
-private fun EmptyHint(text: String) {
+internal fun EmptyHint(text: String) {
     Text(
         text,
         Modifier.fillMaxWidth().padding(32.dp),
@@ -393,7 +415,7 @@ fun formatTimestamp(millis: Long): String =
 
 /** Swipe end-to-start to delete (undoable), over an error-colored background shaped like the row. */
 @Composable
-private fun SwipeToDelete(
+internal fun SwipeToDelete(
     enabled: Boolean,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
