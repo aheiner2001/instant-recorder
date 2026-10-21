@@ -300,8 +300,7 @@ class NotesUiTest {
             NoteItem(id = 5L, text = "Unpinned note 3", pinned = false)
         )
 
-        val pinned = mixedNotes.filter { it.pinned }
-        val unpinned = mixedNotes.filter { !it.pinned }
+        val (pinned, unpinned) = mixedNotes.partition { it.pinned }
 
         assertEquals(2, pinned.size)
         assertTrue(pinned.all { it.pinned })

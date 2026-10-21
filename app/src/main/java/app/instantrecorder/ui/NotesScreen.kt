@@ -2,6 +2,8 @@ package app.instantrecorder.ui
 
 import android.content.Intent
 import android.provider.CalendarContract
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -80,6 +82,7 @@ fun dateBucketLabel(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NotesList(
     notes: List<NoteItem>,
@@ -124,8 +127,7 @@ fun NotesList(
         }
     }
 
-    val pinned = remember(filteredNotes) { filteredNotes.filter { it.pinned } }
-    val unpinned = remember(filteredNotes) { filteredNotes.filter { !it.pinned } }
+    val (pinned, unpinned) = remember(filteredNotes) { filteredNotes.partition { it.pinned } }
     var collapsedSections by rememberSaveable { mutableStateOf(setOf<String>()) }
     val unpinnedByDate = remember(unpinned) {
         unpinned.groupBy { dateBucketLabel(it.createdAt) }
@@ -254,7 +256,7 @@ fun NotesList(
 
                 unpinnedByDate.forEach { (dateLabel, groupNotes) ->
                     val isCollapsed = dateLabel in collapsedSections
-                    item(key = "header_$dateLabel") {
+                    stickyHeader(key = "header_$dateLabel") {
                         val groupCategories = remember(groupNotes, categories) {
                             val catMap = categories.associateBy { it.id }
                             groupNotes.mapNotNull { it.categoryId }.distinct().mapNotNull { catMap[it] }
@@ -384,6 +386,7 @@ fun DateGroupHeader(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.background)
             .clickable(onClick = onToggleCollapse)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
