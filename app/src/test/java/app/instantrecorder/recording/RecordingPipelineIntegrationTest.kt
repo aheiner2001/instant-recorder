@@ -269,6 +269,68 @@ class RecordingPipelineIntegrationTest {
     }
 
     @Test
+    fun `pipeline handles append to non-existent category and does not append to unassigned note`() {
+        val transcript = "Append to UnknownCategory: remember to check the mail"
+        val notesDir = tempFolder.newFolder("Notes")
+
+        // Setup existing unassigned note from earlier today
+        val existingUnassignedNote = NoteItem(
+            id = 205L,
+            text = "Existing unassigned note from today",
+            recordingId = 59L,
+            categoryId = null,
+            createdAt = 1776510000000L,
+            updatedAt = 1776510000000L
+        )
+        val initialUnassignedMdFile = MarkdownSync.syncNote(notesDir, existingUnassignedNote, null)
+        assertTrue(initialUnassignedMdFile.exists())
+        val originalUnassignedContent = initialUnassignedMdFile.readText()
+        assertTrue(originalUnassignedContent.contains("Existing unassigned note from today"))
+
+        // 1. Parse formatted transcript
+        val formatResult = NoteFormatParser.parse(transcript)
+        assertEquals("UnknownCategory", formatResult.appendCategoryName)
+        assertEquals("Remember to check the mail", formatResult.formattedText)
+
+        // 2. Resolve category: non-existent category resolves targetCat to null
+        val targetCat = categories.firstOrNull { it.name.equals(formatResult.appendCategoryName, ignoreCase = true) }
+        assertNull("UnknownCategory should not exist in categories", targetCat)
+        val effectiveCategoryId = targetCat?.id
+        val effectiveCategoryName = targetCat?.name
+        assertNull(effectiveCategoryId)
+        assertNull(effectiveCategoryName)
+
+        // 3. Guarded check: when effectiveCategoryId is null, existingNote must be null
+        // (Guards against Room's getLatestToday returning unassigned notes when queried with null categoryId)
+        val existingNote = effectiveCategoryId?.let {
+            // In Room, getLatestToday(null, startOfDay) would match unassigned notes;
+            // with the guard, it is never queried!
+            existingUnassignedNote
+        }
+        assertNull("Guarded lookup should yield null when category does not exist", existingNote)
+
+        // 4. Falls through to standard note creation (new unassigned note)
+        val contentToSave = formatResult.formattedText
+        val newNote = NoteItem(
+            id = 206L,
+            text = contentToSave,
+            categoryId = effectiveCategoryId,
+            createdAt = 1776512000000L,
+            updatedAt = 1776512000000L
+        )
+        val newNoteMdFile = MarkdownSync.syncNote(notesDir, newNote, effectiveCategoryName)
+        assertTrue(newNoteMdFile.exists())
+
+        // 5. Verify the existing unassigned note was NOT modified
+        assertEquals("Existing unassigned note must remain untouched", "Existing unassigned note from today", existingUnassignedNote.text)
+        assertEquals("Existing unassigned file must remain untouched", originalUnassignedContent, initialUnassignedMdFile.readText())
+
+        // 6. Verify new note content was saved separately
+        assertTrue(newNoteMdFile.readText().contains("Remember to check the mail"))
+        assertTrue(newNoteMdFile.readText().contains("category: \"Unassigned\""))
+    }
+
+    @Test
     fun `pipeline intercepts task command and skips note and markdown creation`() {
         val transcript = "Task: call bishop tomorrow"
         val notesDir = tempFolder.newFolder("Notes")

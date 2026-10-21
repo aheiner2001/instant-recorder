@@ -301,6 +301,7 @@ class RecordingService : LifecycleService() {
                 val startOfDay = now.toLocalDate().atStartOfDay(now.zone).toInstant().toEpochMilli()
 
                 // Handle Dynamic Category Creation
+                var currentCategories = categories
                 val effectiveCategoryId: Long?
                 val effectiveCategoryName: String?
                 val contentToSave: String
@@ -314,11 +315,11 @@ class RecordingService : LifecycleService() {
                     } else {
                         val color = CATEGORY_COLORS[categories.size % CATEGORY_COLORS.size]
                         val nextPos = app.db.categories().nextPosition()
-                        val newCatId = app.db.categories().insert(
-                            Category(name = formatResult.addCategoryName, color = color, position = nextPos)
-                        )
+                        val newCategory = Category(name = formatResult.addCategoryName, color = color, position = nextPos)
+                        val newCatId = app.db.categories().insert(newCategory)
                         effectiveCategoryId = newCatId
                         effectiveCategoryName = formatResult.addCategoryName
+                        currentCategories = categories + newCategory.copy(id = newCatId)
                     }
                     contentToSave = formatResult.formattedText
                 } else if (formatResult.appendCategoryName != null) {
@@ -327,7 +328,7 @@ class RecordingService : LifecycleService() {
                     effectiveCategoryId = targetCat?.id
                     effectiveCategoryName = targetCat?.name
 
-                    val existingNote = app.db.notes().getLatestToday(effectiveCategoryId, startOfDay)
+                    val existingNote = effectiveCategoryId?.let { app.db.notes().getLatestToday(it, startOfDay) }
                     if (existingNote != null) {
                         val timeStr = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()).format(LocalTime.now())
                         val appendedText = "${existingNote.text}\n\n- **$timeStr**: ${formatResult.formattedText}"
@@ -335,8 +336,9 @@ class RecordingService : LifecycleService() {
                             text = appendedText,
                             updatedAt = System.currentTimeMillis()
                         )
-                        app.db.notes().update(updatedNote)
-                        val mdFile = MarkdownSync.syncNote(notesDir, updatedNote, effectiveCategoryName)
+                        val mdFile = withContext(Dispatchers.IO) {
+                            MarkdownSync.syncNote(notesDir, updatedNote, effectiveCategoryName)
+                        }
                         app.db.notes().update(updatedNote.copy(markdownPath = mdFile.absolutePath))
 
                         val categoryRuleList = categories.map { it.rule() }
@@ -367,11 +369,13 @@ class RecordingService : LifecycleService() {
 
                 val savedNote = app.db.notes().get(noteId)
                 if (savedNote != null) {
-                    val mdFile = MarkdownSync.syncNote(notesDir, savedNote, effectiveCategoryName)
+                    val mdFile = withContext(Dispatchers.IO) {
+                        MarkdownSync.syncNote(notesDir, savedNote, effectiveCategoryName)
+                    }
                     app.db.notes().update(savedNote.copy(markdownPath = mdFile.absolutePath))
                 }
 
-                val categoryRuleList = categories.map { it.rule() }
+                val categoryRuleList = currentCategories.map { it.rule() }
                 Notifications.showResult(this, updated, TaskExtractor.extract(contentToSave, categories = categoryRuleList))
             }
         } catch (e: CancellationException) {
