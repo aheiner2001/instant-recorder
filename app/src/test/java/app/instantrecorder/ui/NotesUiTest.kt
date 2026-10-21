@@ -3,6 +3,9 @@ package app.instantrecorder.ui
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
 import app.instantrecorder.notes.MarkdownSync
+import java.time.LocalDate
+import java.time.ZoneId
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -217,5 +220,137 @@ class NotesUiTest {
         assertNotNull(toggleMethod)
         assertEquals(1, toggleMethod?.parameterTypes?.size)
         assertEquals(NoteItem::class.java, toggleMethod?.parameterTypes?.get(0))
+    }
+
+    @Test
+    fun `dateBucketLabel returns Today for timestamps created on same date`() {
+        val fixedNow = LocalDate.of(2026, 10, 21)
+        val zone = ZoneId.of("UTC")
+        val morningMillis = fixedNow.atTime(9, 30).atZone(zone).toInstant().toEpochMilli()
+        val eveningMillis = fixedNow.atTime(22, 15).atZone(zone).toInstant().toEpochMilli()
+
+        assertEquals("Today", dateBucketLabel(morningMillis, fixedNow, zone, Locale.US))
+        assertEquals("Today", dateBucketLabel(eveningMillis, fixedNow, zone, Locale.US))
+    }
+
+    @Test
+    fun `dateBucketLabel returns Yesterday for timestamps 1 day prior`() {
+        val fixedNow = LocalDate.of(2026, 10, 21)
+        val zone = ZoneId.of("UTC")
+        val yesterday = fixedNow.minusDays(1)
+        val millis = yesterday.atTime(18, 0).atZone(zone).toInstant().toEpochMilli()
+
+        assertEquals("Yesterday", dateBucketLabel(millis, fixedNow, zone, Locale.US))
+    }
+
+    @Test
+    fun `dateBucketLabel returns Day of Week and Month for timestamps 2 to 6 days prior`() {
+        val fixedNow = LocalDate.of(2026, 10, 21) // Wednesday
+        val zone = ZoneId.of("UTC")
+
+        // 2 days ago: Monday, Oct 19
+        val twoDaysAgo = fixedNow.minusDays(2)
+        val m2 = twoDaysAgo.atTime(14, 0).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Monday, Oct 19", dateBucketLabel(m2, fixedNow, zone, Locale.US))
+
+        // 3 days ago: Sunday, Oct 18
+        val threeDaysAgo = fixedNow.minusDays(3)
+        val m3 = threeDaysAgo.atTime(10, 30).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Sunday, Oct 18", dateBucketLabel(m3, fixedNow, zone, Locale.US))
+
+        // 6 days ago: Thursday, Oct 15
+        val sixDaysAgo = fixedNow.minusDays(6)
+        val m6 = sixDaysAgo.atTime(8, 0).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Thursday, Oct 15", dateBucketLabel(m6, fixedNow, zone, Locale.US))
+    }
+
+    @Test
+    fun `dateBucketLabel returns formatted date with year for 7 or more days prior and past years`() {
+        val fixedNow = LocalDate.of(2026, 10, 21)
+        val zone = ZoneId.of("UTC")
+
+        // 7 days ago: Oct 14, 2026
+        val sevenDaysAgo = fixedNow.minusDays(7)
+        val m7 = sevenDaysAgo.atTime(11, 0).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Oct 14, 2026", dateBucketLabel(m7, fixedNow, zone, Locale.US))
+
+        // 30 days ago: Sep 21, 2026
+        val thirtyDaysAgo = fixedNow.minusDays(30)
+        val m30 = thirtyDaysAgo.atTime(15, 45).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Sep 21, 2026", dateBucketLabel(m30, fixedNow, zone, Locale.US))
+
+        // Past year: Dec 25, 2025
+        val lastYear = LocalDate.of(2025, 12, 25)
+        val mLastYear = lastYear.atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Dec 25, 2025", dateBucketLabel(mLastYear, fixedNow, zone, Locale.US))
+
+        // Multiple years ago: Jan 1, 2020
+        val year2020 = LocalDate.of(2020, 1, 1)
+        val m2020 = year2020.atTime(0, 0).atZone(zone).toInstant().toEpochMilli()
+        assertEquals("Jan 1, 2020", dateBucketLabel(m2020, fixedNow, zone, Locale.US))
+    }
+
+    @Test
+    fun `partitioning notes into pinned and unpinned separates properly`() {
+        val mixedNotes = listOf(
+            NoteItem(id = 1L, text = "Pinned note 1", pinned = true),
+            NoteItem(id = 2L, text = "Unpinned note 1", pinned = false),
+            NoteItem(id = 3L, text = "Pinned note 2", pinned = true),
+            NoteItem(id = 4L, text = "Unpinned note 2", pinned = false),
+            NoteItem(id = 5L, text = "Unpinned note 3", pinned = false)
+        )
+
+        val pinned = mixedNotes.filter { it.pinned }
+        val unpinned = mixedNotes.filter { !it.pinned }
+
+        assertEquals(2, pinned.size)
+        assertTrue(pinned.all { it.pinned })
+        assertEquals(listOf(1L, 3L), pinned.map { it.id })
+
+        assertEquals(3, unpinned.size)
+        assertTrue(unpinned.none { it.pinned })
+        assertEquals(listOf(2L, 4L, 5L), unpinned.map { it.id })
+    }
+
+    @Test
+    fun `date grouping correctly groups unpinned notes into buckets and preserves order`() {
+        val fixedNow = LocalDate.of(2026, 10, 21)
+        val zone = ZoneId.of("UTC")
+
+        val todayMillis = fixedNow.atTime(10, 0).atZone(zone).toInstant().toEpochMilli()
+        val yesterdayMillis = fixedNow.minusDays(1).atTime(15, 0).atZone(zone).toInstant().toEpochMilli()
+        val pastWeekMillis = fixedNow.minusDays(3).atTime(9, 0).atZone(zone).toInstant().toEpochMilli()
+        val pastYearMillis = LocalDate.of(2024, 6, 1).atTime(12, 0).atZone(zone).toInstant().toEpochMilli()
+
+        val unpinnedNotes = listOf(
+            NoteItem(id = 101L, text = "Today note 1", createdAt = todayMillis),
+            NoteItem(id = 102L, text = "Today note 2", createdAt = todayMillis),
+            NoteItem(id = 103L, text = "Yesterday note", createdAt = yesterdayMillis),
+            NoteItem(id = 104L, text = "Sunday note", createdAt = pastWeekMillis),
+            NoteItem(id = 105L, text = "Old note from 2024", createdAt = pastYearMillis),
+        )
+
+        val grouped = unpinnedNotes.groupBy { dateBucketLabel(it.createdAt, fixedNow, zone, Locale.US) }
+
+        val expectedKeys = listOf("Today", "Yesterday", "Sunday, Oct 18", "Jun 1, 2024")
+        assertEquals(expectedKeys, grouped.keys.toList())
+        assertEquals(2, grouped["Today"]?.size)
+        assertEquals(1, grouped["Yesterday"]?.size)
+        assertEquals(1, grouped["Sunday, Oct 18"]?.size)
+        assertEquals(1, grouped["Jun 1, 2024"]?.size)
+    }
+
+    @Test
+    fun `collapsed sections toggle toggles date bucket presence`() {
+        var collapsedSections = setOf<String>()
+        val dateLabel = "Today"
+
+        // Collapse "Today"
+        collapsedSections = if (dateLabel in collapsedSections) collapsedSections - dateLabel else collapsedSections + dateLabel
+        assertTrue(dateLabel in collapsedSections)
+
+        // Expand "Today"
+        collapsedSections = if (dateLabel in collapsedSections) collapsedSections - dateLabel else collapsedSections + dateLabel
+        assertFalse(dateLabel in collapsedSections)
     }
 }

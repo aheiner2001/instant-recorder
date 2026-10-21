@@ -19,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.LabelOff
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
@@ -50,11 +52,33 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 private const val FILTER_UNASSIGNED = -1L
 
 fun NoteItem.isUnassigned(validCategoryIds: Set<Long>): Boolean =
     categoryId == null || categoryId !in validCategoryIds
+
+fun dateBucketLabel(
+    epochMillis: Long,
+    now: LocalDate = LocalDate.now(),
+    zone: ZoneId = ZoneId.systemDefault(),
+    locale: Locale = Locale.getDefault(),
+): String {
+    val noteDate = Instant.ofEpochMilli(epochMillis).atZone(zone).toLocalDate()
+    val daysDiff = ChronoUnit.DAYS.between(noteDate, now)
+    return when (daysDiff) {
+        0L -> "Today"
+        1L -> "Yesterday"
+        in 2L..6L -> noteDate.format(DateTimeFormatter.ofPattern("EEEE, MMM d", locale))
+        else -> noteDate.format(DateTimeFormatter.ofPattern("MMM d, yyyy", locale))
+    }
+}
 
 @Composable
 fun NotesList(
@@ -98,6 +122,13 @@ fun NotesList(
             val matchesSearch = searchQuery.isBlank() || note.text.contains(searchQuery.trim(), ignoreCase = true)
             matchesCategory && matchesSearch
         }
+    }
+
+    val pinned = remember(filteredNotes) { filteredNotes.filter { it.pinned } }
+    val unpinned = remember(filteredNotes) { filteredNotes.filter { !it.pinned } }
+    var collapsedSections by rememberSaveable { mutableStateOf(setOf<String>()) }
+    val unpinnedByDate = remember(unpinned) {
+        unpinned.groupBy { dateBucketLabel(it.createdAt) }
     }
 
     Column(modifier = modifier) {
@@ -198,21 +229,68 @@ fun NotesList(
                     .fillMaxWidth()
                     .weight(1f),
             ) {
-                items(filteredNotes, key = { it.id }) { note ->
-                    SwipeToDelete(
-                        enabled = true,
-                        onDelete = { onDelete(note) },
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                    ) {
-                        NoteRow(
-                            note = note,
-                            category = categories.firstOrNull { it.id == note.categoryId },
-                            onAssignCategory = { assigningNoteId = note.id },
-                            onClick = {
-                                editingNoteId = note.id
-                                onNoteClick?.invoke(note)
+                if (pinned.isNotEmpty()) {
+                    item(key = "header_pinned") {
+                        PinnedHeader(count = pinned.size)
+                    }
+                    items(pinned, key = { it.id }) { note ->
+                        SwipeToDelete(
+                            enabled = true,
+                            onDelete = { onDelete(note) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        ) {
+                            NoteRow(
+                                note = note,
+                                category = categories.firstOrNull { it.id == note.categoryId },
+                                onAssignCategory = { assigningNoteId = note.id },
+                                onClick = {
+                                    editingNoteId = note.id
+                                    onNoteClick?.invoke(note)
+                                },
+                            )
+                        }
+                    }
+                }
+
+                unpinnedByDate.forEach { (dateLabel, groupNotes) ->
+                    val isCollapsed = dateLabel in collapsedSections
+                    item(key = "header_$dateLabel") {
+                        val groupCategories = remember(groupNotes, categories) {
+                            val catMap = categories.associateBy { it.id }
+                            groupNotes.mapNotNull { it.categoryId }.distinct().mapNotNull { catMap[it] }
+                        }
+                        DateGroupHeader(
+                            title = dateLabel,
+                            count = groupNotes.size,
+                            categories = groupCategories,
+                            isCollapsed = isCollapsed,
+                            onToggleCollapse = {
+                                collapsedSections = if (isCollapsed) {
+                                    collapsedSections - dateLabel
+                                } else {
+                                    collapsedSections + dateLabel
+                                }
                             },
                         )
+                    }
+                    if (!isCollapsed) {
+                        items(groupNotes, key = { it.id }) { note ->
+                            SwipeToDelete(
+                                enabled = true,
+                                onDelete = { onDelete(note) },
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                            ) {
+                                NoteRow(
+                                    note = note,
+                                    category = categories.firstOrNull { it.id == note.categoryId },
+                                    onAssignCategory = { assigningNoteId = note.id },
+                                    onClick = {
+                                        editingNoteId = note.id
+                                        onNoteClick?.invoke(note)
+                                    },
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -264,6 +342,89 @@ fun NotesList(
                 assigningNoteId = null
             },
             onDismiss = { assigningNoteId = null },
+        )
+    }
+}
+
+@Composable
+fun PinnedHeader(
+    count: Int,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.PushPin,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp),
+        )
+        Text(
+            text = "Pinned Thoughts ($count)",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+fun DateGroupHeader(
+    title: String,
+    count: Int,
+    categories: List<Category>,
+    isCollapsed: Boolean,
+    onToggleCollapse: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggleCollapse)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f, fill = false),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+            ) {
+                Text(
+                    text = "$count",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+            if (categories.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    categories.forEach { cat ->
+                        CategoryDot(cat.color, 8.dp)
+                    }
+                }
+            }
+        }
+        Icon(
+            imageVector = if (isCollapsed) Icons.Filled.ExpandMore else Icons.Filled.ExpandLess,
+            contentDescription = if (isCollapsed) "Expand $title" else "Collapse $title",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
