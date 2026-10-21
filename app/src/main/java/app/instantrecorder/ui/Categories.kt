@@ -42,7 +42,7 @@ import androidx.compose.ui.unit.dp
 import app.instantrecorder.data.Category
 
 /** Readable on both light and dark backgrounds. */
-private val CATEGORY_COLORS = listOf(
+internal val CATEGORY_COLORS = listOf(
     0xFF43A047, 0xFF1E88E5, 0xFFFB8C00, 0xFF8E24AA, 0xFFE53935, 0xFF00897B, 0xFFD81B60, 0xFF6D4C41,
 ).map { it.toInt() }
 

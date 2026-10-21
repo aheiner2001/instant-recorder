@@ -28,16 +28,19 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import app.instantrecorder.Notifications
 import app.instantrecorder.app
+import app.instantrecorder.data.Category
 import app.instantrecorder.data.NoteItem
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.notes.CategoryVoiceRouter
 import app.instantrecorder.notes.MarkdownSync
+import app.instantrecorder.notes.NoteFormatParser
 import app.instantrecorder.tasks.TaskExtractor
 import app.instantrecorder.tasks.rule
 import app.instantrecorder.transcribe.Transcriber
 import app.instantrecorder.transcribe.WhisperLib
 import app.instantrecorder.transcribe.WhisperModel
+import app.instantrecorder.ui.CATEGORY_COLORS
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -48,6 +51,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.LocalTime
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import kotlin.math.log10
@@ -279,30 +286,93 @@ class RecordingService : LifecycleService() {
             )
             dao.update(updated)
             if (text.isNotBlank()) {
+                val formatResult = NoteFormatParser.parse(text)
                 val categories = app.db.categories().all()
-                val routeResult = CategoryVoiceRouter.route(text, categories)
-                val categoryName = categories.firstOrNull { it.id == routeResult.categoryId }?.name
+
+                if (formatResult.isTask) {
+                    // Direct task routing: do not create NoteItem
+                    val categoryRuleList = categories.map { it.rule() }
+                    Notifications.showResult(this, updated, TaskExtractor.extract(formatResult.formattedText, categories = categoryRuleList))
+                    return
+                }
+
+                val notesDir = File(getExternalFilesDir(null) ?: filesDir, "Notes")
+                val now = ZonedDateTime.now()
+                val startOfDay = now.toLocalDate().atStartOfDay(now.zone).toInstant().toEpochMilli()
+
+                // Handle Dynamic Category Creation
+                val effectiveCategoryId: Long?
+                val effectiveCategoryName: String?
+                val contentToSave: String
+                val tagString = formatResult.tags.joinToString(",")
+
+                if (formatResult.addCategoryName != null) {
+                    val existing = categories.firstOrNull { it.name.equals(formatResult.addCategoryName, ignoreCase = true) }
+                    if (existing != null) {
+                        effectiveCategoryId = existing.id
+                        effectiveCategoryName = existing.name
+                    } else {
+                        val color = CATEGORY_COLORS[categories.size % CATEGORY_COLORS.size]
+                        val nextPos = app.db.categories().nextPosition()
+                        val newCatId = app.db.categories().insert(
+                            Category(name = formatResult.addCategoryName, color = color, position = nextPos)
+                        )
+                        effectiveCategoryId = newCatId
+                        effectiveCategoryName = formatResult.addCategoryName
+                    }
+                    contentToSave = formatResult.formattedText
+                } else if (formatResult.appendCategoryName != null) {
+                    // Handle Append to Category
+                    val targetCat = categories.firstOrNull { it.name.equals(formatResult.appendCategoryName, ignoreCase = true) }
+                    effectiveCategoryId = targetCat?.id
+                    effectiveCategoryName = targetCat?.name
+
+                    val existingNote = app.db.notes().getLatestToday(effectiveCategoryId, startOfDay)
+                    if (existingNote != null) {
+                        val timeStr = DateTimeFormatter.ofPattern("h:mm a", Locale.getDefault()).format(LocalTime.now())
+                        val appendedText = "${existingNote.text}\n\n- **$timeStr**: ${formatResult.formattedText}"
+                        val updatedNote = existingNote.copy(
+                            text = appendedText,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        app.db.notes().update(updatedNote)
+                        val mdFile = MarkdownSync.syncNote(notesDir, updatedNote, effectiveCategoryName)
+                        app.db.notes().update(updatedNote.copy(markdownPath = mdFile.absolutePath))
+
+                        val categoryRuleList = categories.map { it.rule() }
+                        Notifications.showResult(this, updated, TaskExtractor.extract(formatResult.formattedText, categories = categoryRuleList))
+                        return
+                    } else {
+                        contentToSave = formatResult.formattedText
+                    }
+                } else {
+                    // Standard category-first prefix routing
+                    val routeResult = CategoryVoiceRouter.route(formatResult.formattedText, categories)
+                    effectiveCategoryId = routeResult.categoryId
+                    effectiveCategoryName = categories.firstOrNull { it.id == effectiveCategoryId }?.name
+                    contentToSave = routeResult.cleanedText
+                }
+
+                // Standard Note Creation
                 val noteId = app.db.notes().insert(
                     NoteItem(
-                        text = routeResult.cleanedText,
+                        text = contentToSave,
                         recordingId = updated.id,
-                        categoryId = routeResult.categoryId,
+                        categoryId = effectiveCategoryId,
                         createdAt = updated.createdAt,
-                        updatedAt = System.currentTimeMillis()
+                        updatedAt = System.currentTimeMillis(),
+                        tags = tagString
                     )
                 )
-                val notesDir = File(getExternalFilesDir(null) ?: filesDir, "Notes")
+
                 val savedNote = app.db.notes().get(noteId)
                 if (savedNote != null) {
-                    val mdFile = MarkdownSync.syncNote(notesDir, savedNote, categoryName)
+                    val mdFile = MarkdownSync.syncNote(notesDir, savedNote, effectiveCategoryName)
                     app.db.notes().update(savedNote.copy(markdownPath = mdFile.absolutePath))
                 }
+
                 val categoryRuleList = categories.map { it.rule() }
-                Notifications.showResult(
-                    this,
-                    updated,
-                    TaskExtractor.extract(routeResult.cleanedText, categories = categoryRuleList)
-                )
+                Notifications.showResult(this, updated, TaskExtractor.extract(contentToSave, categories = categoryRuleList))
             }
         } catch (e: CancellationException) {
             throw e
