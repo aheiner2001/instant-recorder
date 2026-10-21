@@ -410,11 +410,10 @@ class RecordingService : LifecycleService() {
         val suggestions = TaskExtractor.extract(text, categories = categoryRuleList)
         val actionableSuggestions = suggestions.filter { it.actionable || it.due != null }
         if (app.settings.value.autoSaveTasks && actionableSuggestions.isNotEmpty()) {
-            for (suggestion in actionableSuggestions) {
-                val item = suggestion.toTaskItem(categoryId = categoryId, recordingId = recording.id)
-                val insertedId = app.db.tasks().insert(item)
-                Reminders.schedule(this, item.copy(id = insertedId))
-            }
+            val items = actionableSuggestions.map { it.toTaskItem(categoryId = categoryId, recordingId = recording.id) }
+            val ids = app.db.tasks().insertAll(items)
+            items.zip(ids) { item, id -> Reminders.schedule(this, item.copy(id = id)) }
+            app.db.recordings().addTasksCreated(recording.id, items.size)
         }
         return suggestions
     }
