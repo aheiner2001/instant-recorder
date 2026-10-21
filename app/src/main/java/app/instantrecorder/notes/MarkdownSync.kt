@@ -42,7 +42,7 @@ object MarkdownSync {
         val content = buildString {
             appendLine("---")
             appendLine("id: ${note.id}")
-            appendLine("category: $effectiveCategory")
+            appendLine("category: \"${effectiveCategory.replace("\"", "\\\"")}\"")
             appendLine("created_at: ${isoFormatter.format(Instant.ofEpochMilli(note.createdAt))}")
             appendLine("updated_at: ${isoFormatter.format(Instant.ofEpochMilli(note.updatedAt))}")
             if (note.recordingId != null) {

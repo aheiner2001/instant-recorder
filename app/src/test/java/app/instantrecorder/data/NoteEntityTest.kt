@@ -105,4 +105,15 @@ class NoteEntityTest {
         assertTrue(sql.contains("`updatedAt` INTEGER NOT NULL"))
         assertTrue(sql.contains("`markdownPath` TEXT"))
     }
+
+    @Test
+    fun `note dao defines clearCategory method and implementation exists`() {
+        val method = NoteDao::class.java.methods.firstOrNull { it.name.startsWith("clearCategory") }
+        assertNotNull("NoteDao should define clearCategory method", method)
+
+        val implClass = Class.forName("app.instantrecorder.data.NoteDao_Impl")
+        assertTrue("NoteDao_Impl must implement NoteDao", NoteDao::class.java.isAssignableFrom(implClass))
+        val implMethod = implClass.methods.firstOrNull { it.name.startsWith("clearCategory") }
+        assertNotNull("NoteDao_Impl should implement clearCategory method", implMethod)
+    }
 }

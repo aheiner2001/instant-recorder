@@ -120,7 +120,7 @@ class NotesUiTest {
         assertFalse("Old file in Unassigned should be deleted", initialFile.exists())
         assertTrue("New file in Work/ should exist", reassignedFile.exists())
         assertEquals("Work", reassignedFile.parentFile?.name)
-        assertTrue(reassignedFile.readText().contains("category: Work"))
+        assertTrue(reassignedFile.readText().contains("category: \"Work\""))
     }
 
     @Test
@@ -143,6 +143,18 @@ class NotesUiTest {
         assertFalse("Old file in Work should be deleted", initialFile.exists())
         assertTrue("New file in Unassigned/ should exist", movedFile.exists())
         assertEquals("Unassigned", movedFile.parentFile?.name)
-        assertTrue(movedFile.readText().contains("category: Unassigned"))
+        assertTrue(movedFile.readText().contains("category: \"Unassigned\""))
+    }
+
+    @Test
+    fun `isUnassigned returns true when categoryId is null or not in validCategoryIds`() {
+        val validIds = setOf(1L, 2L, 3L)
+        val nullCategoryNote = NoteItem(id = 1L, text = "Null category", categoryId = null)
+        val validCategoryNote = NoteItem(id = 2L, text = "Valid category", categoryId = 2L)
+        val deletedCategoryNote = NoteItem(id = 3L, text = "Deleted category", categoryId = 999L)
+
+        assertTrue(nullCategoryNote.isUnassigned(validIds))
+        assertFalse(validCategoryNote.isUnassigned(validIds))
+        assertTrue(deletedCategoryNote.isUnassigned(validIds))
     }
 }

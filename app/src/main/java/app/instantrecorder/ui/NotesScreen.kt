@@ -49,6 +49,9 @@ import app.instantrecorder.data.NoteItem
 
 private const val FILTER_UNASSIGNED = -1L
 
+fun NoteItem.isUnassigned(validCategoryIds: Set<Long>): Boolean =
+    categoryId == null || categoryId !in validCategoryIds
+
 @Composable
 fun NotesList(
     notes: List<NoteItem>,
@@ -64,17 +67,21 @@ fun NotesList(
     var selectedFilterId by rememberSaveable { mutableStateOf<Long?>(null) }
     var assigningNoteId by rememberSaveable { mutableStateOf<Long?>(null) }
 
+    val validCategoryIds = remember(categories) { categories.map { it.id }.toSet() }
+
     val assigningNote = remember(notes, assigningNoteId) {
         if (assigningNoteId == null) null else notes.firstOrNull { it.id == assigningNoteId }
     }
 
-    val unassignedCount = remember(notes) { notes.count { it.categoryId == null } }
+    val unassignedCount = remember(notes, validCategoryIds) {
+        notes.count { it.isUnassigned(validCategoryIds) }
+    }
 
-    val filteredNotes = remember(notes, searchQuery, selectedFilterId) {
+    val filteredNotes = remember(notes, searchQuery, selectedFilterId, validCategoryIds) {
         notes.filter { note ->
             val matchesCategory = when (selectedFilterId) {
                 null -> true
-                FILTER_UNASSIGNED -> note.categoryId == null
+                FILTER_UNASSIGNED -> note.isUnassigned(validCategoryIds)
                 else -> note.categoryId == selectedFilterId
             }
             val matchesSearch = searchQuery.isBlank() || note.text.contains(searchQuery.trim(), ignoreCase = true)
@@ -201,7 +208,7 @@ fun NotesList(
     assigningNote?.let { note ->
         AssignCategoryBottomSheet(
             categories = categories,
-            selectedCategoryId = note.categoryId,
+            selectedCategoryId = if (note.isUnassigned(validCategoryIds)) null else note.categoryId,
             onSelectCategory = { newCategory ->
                 onAssignCategory(note, newCategory?.id)
                 assigningNoteId = null

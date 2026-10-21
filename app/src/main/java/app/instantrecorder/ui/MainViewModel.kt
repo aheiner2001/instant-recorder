@@ -190,7 +190,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val current = graph.db.notes().get(note.id) ?: note
             val updatedTime = System.currentTimeMillis()
-            val categoryName = categories.value.firstOrNull { it.id == categoryId }?.name
+            val categoryName = if (categoryId != null) {
+                graph.db.categories().all().firstOrNull { it.id == categoryId }?.name
+            } else null
             val notesDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "Notes")
             val updated = current.copy(categoryId = categoryId, updatedAt = updatedTime)
             val mdFile = MarkdownSync.syncNote(notesDir, updated, categoryName)
@@ -248,10 +250,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Its tasks stay, uncategorized. */
+    /** Its tasks and notes stay, uncategorized. */
     fun deleteCategory(category: Category) {
         viewModelScope.launch {
             graph.db.tasks().clearCategory(category.id)
+            graph.db.notes().clearCategory(category.id)
             graph.db.categories().delete(category)
         }
     }

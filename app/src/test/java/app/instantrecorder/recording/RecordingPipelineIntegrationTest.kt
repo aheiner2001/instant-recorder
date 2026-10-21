@@ -53,7 +53,7 @@ class RecordingPipelineIntegrationTest {
         assertTrue(mdFile.exists())
         assertEquals("Work", mdFile.parentFile?.name)
         val fileContent = mdFile.readText()
-        assertTrue(fileContent.contains("category: Work"))
+        assertTrue(fileContent.contains("category: \"Work\""))
         assertTrue(fileContent.contains("Remind me to send meeting notes by Friday"))
 
         // 4. Extract tasks using cleaned text and category rules
@@ -91,6 +91,6 @@ class RecordingPipelineIntegrationTest {
         assertTrue(mdFile.exists())
         assertEquals("Unassigned", mdFile.parentFile?.name)
         val fileContent = mdFile.readText()
-        assertTrue(fileContent.contains("category: Unassigned"))
+        assertTrue(fileContent.contains("category: \"Unassigned\""))
     }
 }

@@ -39,7 +39,7 @@ class MarkdownSyncTest {
         val content = file.readText()
         assertTrue("Frontmatter should start with ---", content.startsWith("---\n"))
         assertTrue("Should contain id: 42", content.contains("id: 42"))
-        assertTrue("Should contain category: Church", content.contains("category: Church"))
+        assertTrue("Should contain category: \"Church\"", content.contains("category: \"Church\""))
         assertTrue("Should contain recording_id: 10", content.contains("recording_id: 10"))
         assertTrue("Should contain created_at", content.contains("created_at: 2026-04-18T11:00:00Z"))
         assertTrue("Should contain updated_at", content.contains("updated_at: 2026-04-18T11:00:00Z"))
@@ -64,7 +64,7 @@ class MarkdownSyncTest {
         assertEquals("Unassigned", parent?.name)
 
         val content = file.readText()
-        assertTrue(content.contains("category: Unassigned"))
+        assertTrue(content.contains("category: \"Unassigned\""))
         assertTrue(content.contains("Random idea about fixing the garage door"))
         assertFalse("Should not include recording_id when null", content.contains("recording_id:"))
     }
@@ -85,7 +85,25 @@ class MarkdownSyncTest {
         assertEquals("Unassigned", parent?.name)
 
         val content = file.readText()
-        assertTrue(content.contains("category: Unassigned"))
+        assertTrue(content.contains("category: \"Unassigned\""))
+    }
+
+    @Test
+    fun `syncNote escapes double quotes in category name in frontmatter`() {
+        val baseDir = tempFolder.newFolder("InstantRecorder")
+        val note = NoteItem(
+            id = 102,
+            text = "Note with quoted category name",
+            createdAt = 1776510000000L
+        )
+
+        val file = MarkdownSync.syncNote(baseDir, note, categoryName = "Book: \"The Hobbit\"")
+        assertTrue(file.exists())
+        val content = file.readText()
+        assertTrue(
+            "Frontmatter category should have escaped quotes: $content",
+            content.contains("""category: "Book: \"The Hobbit\""""")
+        )
     }
 
     @Test

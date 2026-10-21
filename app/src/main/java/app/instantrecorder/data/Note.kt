@@ -48,4 +48,7 @@ interface NoteDao {
 
     @Query("UPDATE notes SET categoryId = :categoryId, updatedAt = :updatedAt WHERE id = :id")
     suspend fun setCategory(id: Long, categoryId: Long?, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE notes SET categoryId = NULL WHERE categoryId = :categoryId")
+    suspend fun clearCategory(categoryId: Long)
 }
