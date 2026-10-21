@@ -158,11 +158,12 @@ interface CategoryDao {
     suspend fun delete(category: Category)
 }
 
-@Database(entities = [Recording::class, TaskItem::class, Category::class], version = 6, exportSchema = false)
+@Database(entities = [Recording::class, TaskItem::class, Category::class, NoteItem::class], version = 7, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun recordings(): RecordingDao
     abstract fun tasks(): TaskDao
     abstract fun categories(): CategoryDao
+    abstract fun notes(): NoteDao
 
     companion object {
         /** The categories every install starts with; users can rename, recolor or delete them. */
@@ -210,6 +211,25 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `important` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        /** v7: added notes table for voice note organizer. */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `notes` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `text` TEXT NOT NULL,
+                        `recordingId` INTEGER,
+                        `categoryId` INTEGER,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        `markdownPath` TEXT
+                    )
+                    """.trimIndent()
+                )
             }
         }
 

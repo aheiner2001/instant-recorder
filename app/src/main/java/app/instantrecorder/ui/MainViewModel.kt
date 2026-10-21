@@ -6,10 +6,12 @@ import androidx.lifecycle.viewModelScope
 import app.instantrecorder.Notifications
 import app.instantrecorder.app
 import app.instantrecorder.data.Category
+import app.instantrecorder.data.NoteItem
 import app.instantrecorder.data.Recording
 import app.instantrecorder.data.RecordingStatus
 import app.instantrecorder.data.Settings
 import app.instantrecorder.data.TaskItem
+import app.instantrecorder.notes.MarkdownSync
 import app.instantrecorder.recording.RecorderState
 import app.instantrecorder.recording.RecordingService
 import app.instantrecorder.tasks.Due
@@ -54,6 +56,10 @@ sealed interface Deletion : Undoable {
     data class OfTask(val task: TaskItem) : Deletion {
         override val message get() = "Task deleted"
     }
+
+    data class OfNote(val note: NoteItem) : Deletion {
+        override val message get() = "Note deleted"
+    }
 }
 
 sealed interface Route {
@@ -75,12 +81,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     private val hiddenRecordings = MutableStateFlow<Set<Long>>(emptySet())
     private val hiddenTasks = MutableStateFlow<Set<Long>>(emptySet())
+    private val hiddenNotes = MutableStateFlow<Set<Long>>(emptySet())
 
     val recordings: StateFlow<List<Recording>> =
         combine(graph.db.recordings().observeAll(), hiddenRecordings) { all, hidden -> all.filterNot { it.id in hidden } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val tasks: StateFlow<List<TaskItem>> =
         combine(graph.db.tasks().observeAll(), hiddenTasks) { all, hidden -> all.filterNot { it.id in hidden } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val notes: StateFlow<List<NoteItem>> =
+        combine(graph.db.notes().observeAll(), hiddenNotes) { all, hidden -> all.filterNot { it.id in hidden } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Actions waiting for the home screen's Undo snackbar; buffered so none is missed while navigating there. */
@@ -122,6 +132,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hiddenTasks.update { it + item.task.id }
                 Reminders.cancel(context, item.task.id) // don't remind about a task that's on its way out
             }
+            is Deletion.OfNote -> hiddenNotes.update { it + item.note.id }
         }
         pendingUndoables.trySend(item)
     }
@@ -146,6 +157,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hiddenTasks.update { it - item.task.id }
                 Reminders.schedule(context, item.task)
             }
+            is Deletion.OfNote -> hiddenNotes.update { it - item.note.id }
         }
     }
 
@@ -165,7 +177,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 is Deletion.OfTask -> TaskStore.delete(context, item.task)
+                is Deletion.OfNote -> {
+                    val current = graph.db.notes().get(item.note.id) ?: return@launch
+                    MarkdownSync.deleteNote(current.markdownPath)
+                    graph.db.notes().delete(current)
+                }
             }
+        }
+    }
+
+    fun setNoteCategory(note: NoteItem, categoryId: Long?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val current = graph.db.notes().get(note.id) ?: note
+            val updatedTime = System.currentTimeMillis()
+            val categoryName = if (categoryId != null) {
+                graph.db.categories().all().firstOrNull { it.id == categoryId }?.name
+            } else null
+            val notesDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "Notes")
+            val updated = current.copy(categoryId = categoryId, updatedAt = updatedTime)
+            val mdFile = MarkdownSync.syncNote(notesDir, updated, categoryName)
+            val finalNote = updated.copy(markdownPath = mdFile.absolutePath)
+            graph.db.notes().update(finalNote)
         }
     }
 
@@ -218,10 +250,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Its tasks stay, uncategorized. */
+    /** Its tasks and notes stay, uncategorized. */
     fun deleteCategory(category: Category) {
         viewModelScope.launch {
             graph.db.tasks().clearCategory(category.id)
+            graph.db.notes().clearCategory(category.id)
             graph.db.categories().delete(category)
         }
     }

@@ -39,6 +39,10 @@
                 <action android:name="app.instantrecorder.action.QUICK_RECORD" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.CREATE_NOTE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
             <meta-data
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
